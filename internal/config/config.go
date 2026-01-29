@@ -155,6 +155,14 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("KAFKA_BROKERS is required")
 	}
 
+	if c.Kafka.MaxRecordRetries == 0 {
+		c.Kafka.MaxRecordRetries = 10
+	}
+
+	if c.Kafka.MaxRequestRetries == 0 {
+		c.Kafka.MaxRequestRetries = 10
+	}
+
 	// Validate Postgres config
 	if c.Postgres.User == "" {
 		return fmt.Errorf("POSTGRES_USER is required")
