@@ -7,24 +7,24 @@ import (
 )
 
 type Order struct {
-	ID         uuid.UUID      `json:"id"`
-	PublicID   string         `json:"public_id"`
-	CustomerID string         `json:"customer_id"`
-	Products   []OrderProduct `json:"products"`
-	Status     OrderStatus    `json:"status"`
-	CreatedAt  time.Time      `json:"created_at"`
-	UpdatedAt  time.Time      `json:"updated_at"`
+	ID         uuid.UUID   `json:"id"`
+	PublicID   string      `json:"public_id"`
+	CustomerID string      `json:"customer_id"`
+	Items      []OrderItem `json:"items"`
+	Status     OrderStatus `json:"status"`
+	CreatedAt  time.Time   `json:"created_at"`
+	UpdatedAt  time.Time   `json:"updated_at"`
 }
 
-type OrderProduct struct {
-	ID        uuid.UUID `json:"id"`
-	OrderID   uuid.UUID `json:"order_id"`
-	ProductID uuid.UUID `json:"product_id"`
-	Quantity  int       `json:"quantity"`
-	Price     float64   `json:"price"`
+type OrderItem struct {
+	ID       uuid.UUID `json:"id"`
+	OrderID  uuid.UUID `json:"order_id"`
+	ItemID   uuid.UUID `json:"item_id"`
+	Quantity int       `json:"quantity"`
+	Price    float64   `json:"price"`
 }
 
-type Product struct {
+type Item struct {
 	ID          uuid.UUID `json:"id"`
 	Price       float64   `json:"price"`
 	Name        string    `json:"name"`
@@ -35,8 +35,8 @@ type Product struct {
 func (o *Order) Total() float64 {
 	total := 0.0
 
-	for _, orderProd := range o.Products {
-		total += orderProd.Price * float64(orderProd.Quantity)
+	for _, orderItem := range o.Items {
+		total += orderItem.Price * float64(orderItem.Quantity)
 	}
 
 	return total
