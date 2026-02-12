@@ -34,18 +34,18 @@ type Event struct {
 }
 
 // Comes from OrderItem struct
-type InventoryItem struct {
-	ItemID   uuid.UUID `json:"item_id"`
-	Quantity int       `json:"quantity"`
+type InventoryProduct struct {
+	ProductID uuid.UUID `json:"product_id"`
+	Quantity  int       `json:"quantity"`
 }
 
 // Command payloads
 type ReserveInventoryCommand struct {
-	Items []InventoryItem `json:"items"`
+	Products []InventoryProduct `json:"products"`
 }
 
 type ReleaseInventoryCommand struct {
-	Items []InventoryItem `json:"items"`
+	Products []InventoryProduct `json:"products"`
 }
 
 type ProcessPaymentCommand struct {

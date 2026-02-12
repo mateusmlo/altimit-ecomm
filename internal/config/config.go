@@ -101,8 +101,8 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		Kafka: KafkaConfig{
 			Brokers:           parseBrokers(v.GetString("KAFKA_BROKERS")),
-			MaxRequestRetries: v.GetInt("MAX_REQ_RETRIES"),
-			MaxRecordRetries:  v.GetInt("MAX_RECORD_RETRIES"),
+			MaxRequestRetries: v.GetInt("KAFKA_MAX_REQ_RETRIES"),
+			MaxRecordRetries:  v.GetInt("KAFKA_MAX_RECORD_RETRIES"),
 		},
 		Postgres: PostgresConfig{
 			User:     v.GetString("POSTGRES_USER"),
