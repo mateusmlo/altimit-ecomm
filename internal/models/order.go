@@ -6,30 +6,26 @@ import (
 	"github.com/google/uuid"
 )
 
+// OrderStatus represents the status of an order.
+type OrderStatus string
+
+const (
+	OrderPending    OrderStatus = "PENDING"
+	OrderProcessing OrderStatus = "PROCESSING"
+	OrderCompleted  OrderStatus = "COMPLETED"
+	OrderCancelled  OrderStatus = "CANCELLED"
+	OrderFailed     OrderStatus = "FAILED"
+)
+
 type Order struct {
-	ID         uuid.UUID   `json:"id"`
-	PublicID   string      `json:"public_id"`
-	CustomerID string      `json:"customer_id"`
-	Items      []OrderItem `json:"items"`
-	Status     OrderStatus `json:"status"`
-	CreatedAt  time.Time   `json:"created_at"`
-	UpdatedAt  time.Time   `json:"updated_at"`
-}
-
-type OrderItem struct {
-	ID       uuid.UUID `json:"id"`
-	OrderID  uuid.UUID `json:"order_id"`
-	ItemID   uuid.UUID `json:"item_id"`
-	Quantity int       `json:"quantity"`
-	Price    float64   `json:"price"`
-}
-
-type Item struct {
-	ID          uuid.UUID `json:"id"`
-	Price       float64   `json:"price"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	Stock       int
+	ID          uuid.UUID   `json:"id" gorm:"type:uuid;primaryKey"`
+	PublicID    string      `json:"public_id" gorm:"type:varchar(255);not null;index"`
+	CustomerID  string      `json:"customer_id" gorm:"type:varchar(255);not null;index"`
+	TotalAmount float64     `json:"total_amount" gorm:"type:decimal(10,2);not null"`
+	Items       []OrderItem `json:"items" gorm:"foreignKey:OrderID"`
+	Status      OrderStatus `json:"status" gorm:"type:order_status;not null;index"`
+	CreatedAt   time.Time   `json:"created_at" gorm:"not null;default:CURRENT_TIMESTAMP;index"`
+	UpdatedAt   time.Time   `json:"updated_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
 }
 
 func (o *Order) Total() float64 {
