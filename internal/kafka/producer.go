@@ -17,11 +17,11 @@ type Producer struct {
 }
 
 type RecordMetadata struct {
-	eventType models.EventType
-	eventID   uuid.UUID
-	sagaID    uuid.UUID
-	orderID   uuid.UUID
-	timestamp int64
+	EventType models.EventType `json:"event_type"`
+	EventID   uuid.UUID        `json:"event_id"`
+	SagaID    uuid.UUID        `json:"saga_id"`
+	OrderID   uuid.UUID        `json:"order_id"`
+	Timestamp int64            `json:"timestamp"`
 }
 
 func (rm *RecordMetadata) MarshalBinary() ([]byte, error) {
@@ -31,7 +31,7 @@ func (rm *RecordMetadata) MarshalBinary() ([]byte, error) {
 func NewProducer(cfg *config.Config) (*Producer, error) {
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(cfg.Kafka.Brokers...),
-		kgo.WithLogger(kgo.BasicLogger(log.Writer(), kgo.LogLevelDebug, nil)),
+		kgo.WithLogger(kgo.BasicLogger(log.Writer(), kgo.LogLevelError, nil)),
 		kgo.ClientID("altimit"),
 		kgo.RequiredAcks(kgo.AllISRAcks()),
 		kgo.RecordRetries(cfg.Kafka.MaxRecordRetries),
@@ -52,11 +52,11 @@ func (p *Producer) PublishEvent(ctx context.Context, topic string, key []byte, e
 	}
 
 	rm := RecordMetadata{
-		eventType: ev.Event,
-		eventID:   ev.EventID,
-		sagaID:    ev.SagaID,
-		orderID:   ev.OrderID,
-		timestamp: ev.Timestamp,
+		EventType: ev.Event,
+		EventID:   ev.EventID,
+		SagaID:    ev.SagaID,
+		OrderID:   ev.OrderID,
+		Timestamp: ev.Timestamp,
 	}
 
 	rmBytes, err := rm.MarshalBinary()

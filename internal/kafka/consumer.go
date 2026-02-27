@@ -22,7 +22,7 @@ type RecordHandler func(ctx context.Context, record *kgo.Record) error
 func NewConsumer(cfg *config.Config, groupID string, topics []string) (*Consumer, error) {
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(cfg.Kafka.Brokers...),
-		kgo.WithLogger(kgo.BasicLogger(log.Writer(), kgo.LogLevelDebug, nil)),
+		kgo.WithLogger(kgo.BasicLogger(log.Writer(), kgo.LogLevelError, nil)),
 		kgo.ConsumerGroup(groupID),
 		kgo.ConsumeTopics(topics...),
 		kgo.DisableAutoCommit(),
