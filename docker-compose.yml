@@ -1,8 +1,6 @@
-version: "3.8"
-
 services:
   zookeeper:
-    image: confluentinc/cp-zookeeper:latest
+    image: confluentinc/cp-zookeeper:7.9.5
     hostname: zookeeper
     container_name: zookeeper
     ports:
@@ -14,7 +12,7 @@ services:
       - kafka-network
 
   kafka:
-    image: confluentinc/cp-kafka:latest
+    image: confluentinc/cp-kafka:7.9.5
     hostname: kafka
     container_name: kafka
     depends_on:
@@ -48,8 +46,28 @@ services:
       timeout: 10s
       retries: 5
 
+  kafka-init:
+    image: confluentinc/cp-kafka:7.9.5
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command: >
+      "kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic orders --partitions 1 --replication-factor 1 &&
+       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic inventory.commands --partitions 1 --replication-factor 1 &&
+       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment.commands --partitions 1 --replication-factor 1 &&
+       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic notification.commands --partitions 1 --replication-factor 1 &&
+       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic inventory.replies --partitions 1 --replication-factor 1 &&
+       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment.replies --partitions 1 --replication-factor 1 &&
+       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic notification.replies --partitions 1 --replication-factor 1 &&
+       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic orders.dlq --partitions 1 --replication-factor 1 &&
+       echo 'All topics created.'"
+    networks:
+      - kafka-network
+
   kafka-ui:
-    image: provectuslabs/kafka-ui:latest
+    image: provectuslabs/kafka-ui:v0.7.2
     container_name: kafka-ui
     depends_on:
       - kafka
@@ -63,12 +81,12 @@ services:
       - kafka-network
 
   postgres:
-    image: postgres:latest
+    image: postgres:17.4
     container_name: postgres
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-kafka_user}
+      POSTGRES_USER: ${POSTGRES_USER:-mmlo_adm}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kafka_pass}
       POSTGRES_DB: ${POSTGRES_DB:-orders_db}
     volumes:
@@ -77,13 +95,13 @@ services:
     networks:
       - kafka-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U kafka_user"]
+      test: ["CMD-SHELL", "pg_isready -U mmlo_adm"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   redis:
-    image: redis:latest
+    image: redis:7.4.2
     container_name: redis
     ports:
       - "6379:6379"
