@@ -34,7 +34,7 @@ CREATE TYPE reservation_status AS ENUM (
 );
 
 -- Inventory table (must be created before order_items which references it)
-CREATE TABLE IF NOT EXISTS product (
+CREATE TABLE IF NOT EXISTS products (
     product_id UUID PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE TABLE IF NOT EXISTS order_items (
     id UUID PRIMARY KEY,
     order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    product_id UUID NOT NULL REFERENCES inventory(product_id) ON DELETE RESTRICT,
+    product_id UUID NOT NULL REFERENCES products(product_id) ON DELETE RESTRICT,
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     price DECIMAL(10, 2) NOT NULL CHECK (price >= 0)
 );
@@ -65,8 +65,9 @@ CREATE TABLE IF NOT EXISTS order_items (
 -- Inventory reservations table (links reservations to specific orders)
 CREATE TABLE IF NOT EXISTS inventory_reservations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    order_id UUID NOT NULL REFERENCES orders(id),
-    product_id UUID NOT NULL REFERENCES inventory(product_id),
+    -- TODO: add REFERENCES orders(id) once the orders service writes to this shared DB
+    order_id UUID NOT NULL,
+    product_id UUID NOT NULL REFERENCES products(product_id),
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     status reservation_status NOT NULL DEFAULT 'ACTIVE',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -122,7 +123,7 @@ CREATE INDEX IF NOT EXISTS idx_saga_state_status ON saga_state(status);
 CREATE INDEX IF NOT EXISTS idx_idempotency_keys_created_at ON idempotency_keys(created_at);
 
 -- Seed some inventory
-INSERT INTO inventory (product_id, name, description, price, stock) VALUES
+INSERT INTO products (product_id, name, description, price, stock) VALUES
     (gen_random_uuid(), 'Product A', 'Premium quality product A', 29.99, 100),
     (gen_random_uuid(), 'Product B', 'Standard product B', 19.99, 50),
     (gen_random_uuid(), 'Product C', 'Deluxe product C', 49.99, 75)
