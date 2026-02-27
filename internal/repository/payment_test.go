@@ -116,7 +116,7 @@ func TestPaymentList_Pagination(t *testing.T) {
 	repo := NewPaymentRepository(testDB)
 	ctx := context.Background()
 
-	for i := 0; i < 7; i++ {
+	for range 7 {
 		require.NoError(t, testDB.Create(newTestPayment(uuid.New())).Error)
 	}
 
@@ -145,11 +145,11 @@ func TestPaymentGetByStatus(t *testing.T) {
 	ctx := context.Background()
 
 	// Create payments with different statuses
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		p := newTestPayment(uuid.New(), func(p *models.Payment) { p.Status = models.PaymentPending })
 		require.NoError(t, testDB.Create(p).Error)
 	}
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		p := newTestPayment(uuid.New(), func(p *models.Payment) { p.Status = models.PaymentCompleted })
 		require.NoError(t, testDB.Create(p).Error)
 	}
