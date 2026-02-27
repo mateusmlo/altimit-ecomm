@@ -43,15 +43,13 @@ func (r *inventoryReservationRepository) ReserveItems(ctx context.Context, order
 			return err
 		}
 
+		itemQty := make(map[uuid.UUID]int, len(items))
+		for _, item := range items {
+			itemQty[item.ProductID] = item.Quantity
+		}
+
 		for _, p := range products {
-			var requestedQty int
-			for _, item := range items {
-				if item.ProductID == p.ID {
-					requestedQty = item.Quantity
-					break
-				}
-			}
-			if p.Stock < requestedQty {
+			if requestedQty := itemQty[p.ID]; p.Stock < requestedQty {
 				return fmt.Errorf("%w for product %s: available=%d, requested=%d",
 					ErrInsufficientStock, p.ID, p.Stock, requestedQty)
 			}
