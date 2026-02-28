@@ -9,11 +9,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
-    services:
-      docker:
-        image: docker:dind
-        options: --privileged
 
     steps:
       - name: Checkout code
@@ -29,7 +24,9 @@ jobs:
         run: go mod download
 
       - name: Run tests
-        run: go test ./... -v -count=1
+        run: go test ./... -count=1
+
+      - name: Run integration tests
+        run: go test ./... -count=1 -tags integration -timeout 5m
         env:
-          # Testcontainers needs Docker
           DOCKER_HOST: unix:///var/run/docker.sock
