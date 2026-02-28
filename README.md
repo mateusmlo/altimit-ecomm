@@ -6,6 +6,9 @@ A backend for an e-commerce platform built around the **Saga choreography/orches
 
 The project is a work in progress. Only the **inventory service** is fully implemented so far; the remaining services (payment, notification, orchestrator) are scaffolded and will follow the same structure.
 
+## Disclaimer
+**No vibe coding here!** This project served as a means for me to study both Apache Kafka and SAGA pattern implementation, and it's developed using Claude Code purely as a mentor, meaning I use it mainly to explain complex logic, code reviewing and also helping me tackle the project step by step (it's a BIG one). While Claude Code is EXTREMELY good at doing things, I do not rely solely on its ideas, which at times may be questionable or subpar; this is where my experience ~~(and Reddit)~~ comes into play. What I usually ask Claude Code to write: tests, READMEs, scripts, commits, and boilerplate. You know, the boring stuff (rule of thumb: do not blindly trust generated code). It's been very challenging and a lot of fun building this project. No one asked, but my personal views on AI **(for coding)** are quite mixed and warrant an essay about it (one day).
+
 ---
 
 ## Stack
