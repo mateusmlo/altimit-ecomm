@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/mateusmlo/altimit-ecomm/internal/errs"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"github.com/mateusmlo/altimit-ecomm/internal/repository"
 )
@@ -28,13 +29,13 @@ func (s *InventoryService) ReserveInventory(ctx context.Context, orderID uuid.UU
 	err := s.repo.ReserveItems(ctx, orderID, cmd.Products)
 
 	switch {
-	case errors.Is(err, repository.ErrInsufficientStock):
+	case errors.Is(err, errs.ErrInsufficientStock):
 		return &models.InventoryReply{
 			Success: false,
 			Message: fmt.Sprintf("Insufficient stock: %v", err),
 		}, nil
 
-	case errors.Is(err, repository.ErrProductNotFound):
+	case errors.Is(err, errs.ErrProductNotFound):
 		return &models.InventoryReply{
 			Success: false,
 			Message: fmt.Sprintf("Product not found: %v", err),
@@ -54,13 +55,13 @@ func (s *InventoryService) ReleaseInventory(ctx context.Context, orderID uuid.UU
 	err := s.repo.ReleaseItems(ctx, orderID, cmd.Products)
 
 	switch {
-	case errors.Is(err, repository.ErrProductNotFound):
+	case errors.Is(err, errs.ErrProductNotFound):
 		return &models.InventoryReply{
 			Success: false,
 			Message: fmt.Sprintf("Product not found: %v", err),
 		}, nil
 
-	case errors.Is(err, repository.ErrNoActiveReservations):
+	case errors.Is(err, errs.ErrNoActiveReservations):
 		return &models.InventoryReply{
 			Success: false,
 			Message: fmt.Sprintf("No active reservations found: %v", err),

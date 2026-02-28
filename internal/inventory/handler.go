@@ -8,6 +8,7 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
 	"github.com/mateusmlo/altimit-ecomm/internal/config"
+	"github.com/mateusmlo/altimit-ecomm/internal/errs"
 	"github.com/mateusmlo/altimit-ecomm/internal/kafka"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -30,7 +31,7 @@ func NewHandler(service *InventoryService, producer *kafka.Producer, config *con
 func (h *Handler) HandleCommand(ctx context.Context, rec *kgo.Record) error {
 	metadata, err := h.extractMedatada(rec.Headers)
 	if err != nil {
-		return fmt.Errorf("failed to extract metadata: %w", err)
+		return err
 	}
 
 	var reply *models.InventoryReply
@@ -43,7 +44,7 @@ func (h *Handler) HandleCommand(ctx context.Context, rec *kgo.Record) error {
 		reply, err = h.handleReleaseInventory(ctx, metadata.OrderID, rec.Value)
 
 	default:
-		return fmt.Errorf("unknown event type: %s", metadata.EventType)
+		return fmt.Errorf("%w: %s", errs.ErrUnknownEvent, metadata.EventType)
 	}
 
 	if err != nil {
@@ -65,11 +66,11 @@ func (h *Handler) extractMedatada(headers []kgo.RecordHeader) (*kafka.RecordMeta
 	}
 
 	if metadataBytes == nil {
-		return nil, fmt.Errorf("metadata header not found")
+		return nil, errs.ErrMissingMetadata
 	}
 
 	if err := sonic.Unmarshal(metadataBytes, &metadata); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+		return nil, fmt.Errorf("%w: %w", errs.ErrMalformedPayload, err)
 	}
 
 	return &metadata, nil
@@ -79,7 +80,7 @@ func (h *Handler) handleReserveInventory(ctx context.Context, orderID uuid.UUID,
 	var cmd models.ReserveInventoryCommand
 
 	if err := sonic.Unmarshal(payload, &cmd); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal command: %w", err)
+		return nil, fmt.Errorf("%w: %w", errs.ErrMalformedPayload, err)
 	}
 
 	return h.service.ReserveInventory(ctx, orderID, cmd)
@@ -89,7 +90,7 @@ func (h *Handler) handleReleaseInventory(ctx context.Context, orderID uuid.UUID,
 	var cmd models.ReleaseInventoryCommand
 
 	if err := sonic.Unmarshal(payload, &cmd); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal command: %w", err)
+		return nil, fmt.Errorf("%w: %w", errs.ErrMalformedPayload, err)
 	}
 
 	return h.service.ReleaseInventory(ctx, orderID, cmd)
