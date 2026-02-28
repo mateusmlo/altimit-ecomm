@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/mateusmlo/altimit-ecomm/internal/errs"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -42,7 +43,7 @@ func lockAndFetchProducts(tx *gorm.DB, productIDs []uuid.UUID) ([]*models.Produc
 		}
 		for _, id := range productIDs {
 			if !found[id] {
-				return nil, fmt.Errorf("%w: %s", ErrProductNotFound, id)
+				return nil, fmt.Errorf("%w: %s", errs.ErrProductNotFound, id)
 			}
 		}
 	}

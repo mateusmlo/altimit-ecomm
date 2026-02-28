@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/mateusmlo/altimit-ecomm/internal/errs"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"gorm.io/gorm"
 )
@@ -43,17 +44,15 @@ func (r *inventoryReservationRepository) ReserveItems(ctx context.Context, order
 			return err
 		}
 
+		itemQty := make(map[uuid.UUID]int, len(items))
+		for _, item := range items {
+			itemQty[item.ProductID] = item.Quantity
+		}
+
 		for _, p := range products {
-			var requestedQty int
-			for _, item := range items {
-				if item.ProductID == p.ID {
-					requestedQty = item.Quantity
-					break
-				}
-			}
-			if p.Stock < requestedQty {
+			if requestedQty := itemQty[p.ID]; p.Stock < requestedQty {
 				return fmt.Errorf("%w for product %s: available=%d, requested=%d",
-					ErrInsufficientStock, p.ID, p.Stock, requestedQty)
+					errs.ErrInsufficientStock, p.ID, p.Stock, requestedQty)
 			}
 		}
 
@@ -96,7 +95,7 @@ func (r *inventoryReservationRepository) ReleaseItems(ctx context.Context, order
 			if err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					return fmt.Errorf("%w: product %s for order %s",
-						ErrNoActiveReservations, item.ProductID, orderID)
+						errs.ErrNoActiveReservations, item.ProductID, orderID)
 				}
 				return err
 			}
@@ -138,7 +137,7 @@ func (r *inventoryReservationRepository) ConfirmByOrderID(ctx context.Context, o
 	}
 
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("%w for order %s", ErrNoActiveReservations, orderID)
+		return fmt.Errorf("%w for order %s", errs.ErrNoActiveReservations, orderID)
 	}
 
 	return nil

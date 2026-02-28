@@ -1,3 +1,5 @@
+//go:build integration
+
 package repository
 
 import (
@@ -6,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/mateusmlo/altimit-ecomm/internal/errs"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -75,7 +78,7 @@ func TestLockAndFetchProducts_PartialMissing(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Nil(t, products)
-	assert.True(t, errors.Is(err, ErrProductNotFound))
+	assert.True(t, errors.Is(err, errs.ErrProductNotFound))
 }
 
 func TestLockAndFetchProducts_OrderedByProductID(t *testing.T) {

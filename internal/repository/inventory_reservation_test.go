@@ -1,3 +1,5 @@
+//go:build integration
+
 package repository
 
 import (
@@ -6,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/mateusmlo/altimit-ecomm/internal/errs"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,7 +75,7 @@ func TestReserveItems_InsufficientStock(t *testing.T) {
 	err := repo.ReserveItems(ctx, orderID, items)
 
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrInsufficientStock))
+	assert.True(t, errors.Is(err, errs.ErrInsufficientStock))
 
 	// Verify stock unchanged (transaction rolled back)
 	var actual models.Product
@@ -97,7 +100,7 @@ func TestReserveItems_ProductNotFound(t *testing.T) {
 	err := repo.ReserveItems(ctx, uuid.New(), items)
 
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrProductNotFound))
+	assert.True(t, errors.Is(err, errs.ErrProductNotFound))
 }
 
 func TestReleaseItems_Success(t *testing.T) {
@@ -162,7 +165,7 @@ func TestReleaseItems_AlreadyReleased(t *testing.T) {
 	// Second release — no active reservations, should return error
 	err := repo.ReleaseItems(ctx, orderID, items)
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrNoActiveReservations))
+	assert.True(t, errors.Is(err, errs.ErrNoActiveReservations))
 
 	// Stock should still be 100 (not 110)
 	var actual models.Product
@@ -208,7 +211,7 @@ func TestConfirmByOrderID_NoActiveReservations(t *testing.T) {
 	err := repo.ConfirmByOrderID(ctx, uuid.New())
 
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrNoActiveReservations))
+	assert.True(t, errors.Is(err, errs.ErrNoActiveReservations))
 }
 
 func TestConfirmByOrderID_AlreadyConfirmed(t *testing.T) {
@@ -230,7 +233,7 @@ func TestConfirmByOrderID_AlreadyConfirmed(t *testing.T) {
 	// Second confirm — no active reservations left
 	err := repo.ConfirmByOrderID(ctx, orderID)
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrNoActiveReservations))
+	assert.True(t, errors.Is(err, errs.ErrNoActiveReservations))
 }
 
 func TestFindByOrderID_Found(t *testing.T) {

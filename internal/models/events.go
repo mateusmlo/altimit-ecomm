@@ -1,6 +1,8 @@
 package models
 
 import (
+	"fmt"
+
 	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
 )
@@ -16,12 +18,14 @@ const (
 	EventSendNotification EventType = "SEND_NOTIFICATION"
 
 	// Replies (responses from services)
-	EventInventoryReserved  EventType = "INVENTORY_RESERVED"
-	EventInventoryFailed    EventType = "INVENTORY_FAILED"
-	EventPaymentProcessed   EventType = "PAYMENT_PROCESSED"
-	EventPaymentFailed      EventType = "PAYMENT_FAILED"
-	EventNotificationSent   EventType = "NOTIFICATION_SENT"
-	EventNotificationFailed EventType = "NOTIFICATION_FAILED"
+	EventInventoryReserved      EventType = "INVENTORY_RESERVED"
+	EventInventoryReleased      EventType = "INVENTORY_RELEASED"
+	EventReserveInventoryFailed EventType = "RESERVE_INVENTORY_FAILED"
+	EventReleaseInventoryFailed EventType = "RELEASE_INVENTORY_FAILED"
+	EventPaymentProcessed       EventType = "PAYMENT_PROCESSED"
+	EventPaymentFailed          EventType = "PAYMENT_FAILED"
+	EventNotificationSent       EventType = "NOTIFICATION_SENT"
+	EventNotificationFailed     EventType = "NOTIFICATION_FAILED"
 )
 
 type Event struct {
@@ -79,4 +83,24 @@ type PaymentReply struct {
 type NotificationReply struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
+}
+
+func ValidateInventoryCommand(prods []InventoryProduct) *InventoryReply {
+	if len(prods) == 0 {
+		return &InventoryReply{
+			Success: false,
+			Message: "No products specified",
+		}
+	}
+
+	for _, product := range prods {
+		if product.Quantity <= 0 {
+			return &InventoryReply{
+				Success: false,
+				Message: fmt.Sprintf("Invalid quantity for product %s", product.ProductID.String()),
+			}
+		}
+	}
+
+	return nil
 }

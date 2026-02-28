@@ -1,3 +1,5 @@
+//go:build integration
+
 package repository
 
 import (
@@ -130,7 +132,7 @@ func TestOrderList_Pagination(t *testing.T) {
 	repo := NewOrderRepository(testDB)
 	ctx := context.Background()
 
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		require.NoError(t, repo.Create(ctx, newTestOrder()))
 	}
 
