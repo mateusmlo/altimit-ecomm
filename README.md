@@ -2,12 +2,10 @@
 
 # altimit-ecomm
 
-A backend for an e-commerce platform built around the **Saga choreography/orchestration pattern**. Each domain concern (inventory, payment, notification, …) lives in its own service and communicates exclusively through Kafka events — no direct service-to-service calls.
-
-The project is a work in progress. Only the **inventory service** is fully implemented so far; the remaining services (payment, notification, orchestrator) are scaffolded and will follow the same structure.
+A backend for an e-commerce platform built around the **Saga orchestration pattern**. Each domain concern (inventory, payment, notification) lives in its own service and communicates exclusively through Kafka events — no direct service-to-service calls. A central **saga orchestrator** coordinates the distributed transaction and drives compensation when a step fails.
 
 ## Disclaimer
-**No vibe coding here!** This project served as a means for me to study both Apache Kafka and SAGA pattern implementation, and it's developed using Claude Code purely as a mentor, meaning I use it mainly to explain complex logic, code reviewing and also helping me tackle the project step by step (it's a BIG one). While Claude Code is EXTREMELY good at doing things, I do not rely solely on its ideas, which at times may be questionable or subpar; this is where my experience ~~(and Reddit)~~ comes into play. What I usually ask Claude Code to write: tests, READMEs, scripts, commits, and boilerplate. You know, the boring stuff (rule of thumb: do not blindly trust generated code). It's been very challenging and a lot of fun building this project. 
+This project served as a means for me to study both Apache Kafka and SAGA pattern implementation, and it's developed using Claude Code purely as a mentor, meaning I use it mainly to explain complex logic, code reviewing and also helping me tackle the project step by step (it's a BIG one). While Claude Code is EXTREMELY good at doing things, I do not rely solely on its ideas, which at times may be questionable or subpar; this is where my experience ~~(and Reddit)~~ comes into play. What I usually ask Claude Code to write: tests, READMEs, scripts, commits, and boilerplate. You know, the boring stuff (rule of thumb: do not blindly trust generated code). It's been very challenging and a lot of fun building this project.
 
 ---
 
@@ -29,36 +27,63 @@ The project is a work in progress. Only the **inventory service** is fully imple
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Kafka topics                            │
-│                                                                 │
-│  orders           inventory.commands       payment.commands     │
-│  inventory.replies  payment.replies        notification.*       │
-│  orders.dlq                                                     │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │ consume / produce
-           ┌────────────────┼────────────────┐
-           ▼                ▼                ▼
-   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-   │  Inventory   │  │   Payment    │  │ Notification │
-   │   Service    │  │   Service    │  │   Service    │
-   └──────┬───────┘  └──────────────┘  └──────────────┘
-          │ GORM
-          ▼
-     PostgreSQL
+  ┌──────────────────────────────────────────────────────────────────┐
+  │                          Kafka topics                            │
+  │                                                                  │
+  │  orders          inventory.commands       payment.commands       │
+  │  inventory.replies  payment.replies       notification.commands  │
+  │  notification.replies                     orders.dlq             │
+  └──────┬────────────────────┬───────────────────────┬─────────────┘
+         │ consume/produce     │ consume/produce        │ consume/produce
+         ▼                     ▼                        ▼
+  ┌─────────────┐      ┌──────────────┐       ┌──────────────────┐
+  │  Inventory  │      │   Payment    │       │  Notification    │
+  │   Service   │      │   Service    │       │    Service       │
+  └──────┬──────┘      └──────────────┘       └──────────────────┘
+         │ GORM
+         ▼
+    PostgreSQL
+         ▲
+         │ GORM
+  ┌──────┴──────────────────────────────┐
+  │         Saga Orchestrator           │
+  │  • drives the order workflow        │
+  │  • triggers compensation on failure │
+  │  • retries failed compensations     │
+  └─────────────────────────────────────┘
+```
+
+### Order workflow
+
+```
+START
+  │
+  ▼
+[ReserveInventory] ──fail──► (no prior steps — mark FAILED)
+  │ success
+  ▼
+[ProcessPayment] ──fail──► [CompensateInventory] ──► COMPENSATED / COMPENSATION_FAILED
+  │ success
+  ▼
+[SendNotification] ──fail──► [RefundPayment] ──► [CompensateInventory] ──► COMPENSATED
+  │ success
+  ▼
+COMPLETED
 ```
 
 ### Key design decisions
 
-**Saga pattern over direct calls** — each service only knows about Kafka topics. Commands arrive as records on `*.commands` topics; replies are published back to `*.replies` topics. This keeps services fully decoupled and makes compensating transactions explicit.
+**Saga orchestration** — the orchestrator holds the full workflow definition. It publishes commands to `*.commands` topics and listens for replies on `*.replies` topics. On failure it walks backwards through completed steps and triggers compensations in order.
 
-**Idempotency keys** — every command is guarded by an idempotency key stored in PostgreSQL so that retries and at-least-once delivery do not produce duplicate side effects.
+**Compensation routing via workflow metadata** — each `StepDefinition` carries its own `CompensationStep`, `CompensationEventType`, and `CompensationCommandTopic` so compensation commands are always routed to the correct service topic without any switch logic outside the workflow.
 
-**Sentinel errors in `internal/errs`** — all shared domain errors (`ErrProductNotFound`, `ErrInsufficientStock`, `ErrMissingMetadata`, …) live in one package so any internal package can check them with `errors.Is` without creating circular imports.
+**Exponential backoff for failed compensations** — if a compensation step itself fails the orchestrator records the retry count and a `next_retry_at` timestamp (with jitter). A `RetryWorker` goroutine polls for retryable sagas and re-sends the compensation command. After `MaxCompensationRetries` the saga is marked `COMPENSATION_FAILED` for manual intervention.
+
+**Idempotency keys** — every command is guarded by an idempotency key stored in PostgreSQL so that retries and at-least-once Kafka delivery do not produce duplicate side effects.
+
+**Sentinel errors in `internal/errs`** — all shared domain errors live in one package so any internal package can use `errors.Is` without creating circular imports.
 
 **Record metadata in Kafka headers** — event type, saga ID, order ID, and timestamp are serialised into a `metadata` header on every record, keeping the message body as a plain command/reply payload.
-
-**GORM auto-migrate** — schema migrations run at startup via `AutoMigrate`. Suitable for development; a proper migration tool (Atlas, golang-migrate) would replace this in production.
 
 ---
 
@@ -67,17 +92,24 @@ The project is a work in progress. Only the **inventory service** is fully imple
 ```
 cmd/
   inventory/        # Inventory service entrypoint + integration tests
+  orchestrator/     # Saga orchestrator entrypoint + integration tests
   payment/          # (scaffolded)
   notification/     # (scaffolded)
-  orchestrator/     # (scaffolded)
 internal/
   config/           # Viper-based config loader (see internal/config/README.md)
   database/         # GORM connection setup
   errs/             # Shared sentinel errors
   inventory/        # Inventory service logic and Kafka handler
-  kafka/            # Generic Kafka consumer and producer
-  models/           # GORM models and event/command types
+  kafka/            # Generic Kafka consumer, producer, and EventPublisher interface
+  models/           # GORM models, event/command types, and saga workflow definition
+  orchestrator/     # Saga orchestrator logic and Kafka handler
   repository/       # Data-access layer (one file per aggregate)
+scripts/
+  migrate.sql       # Idempotent DB migrations for existing containers
+  seed.sql          # Test product data
+  test-saga/        # Live end-to-end saga test (Go program)
+  test-reserve.sh   # Ad-hoc ReserveInventory command
+  test-release.sh   # Ad-hoc ReleaseInventory command
 ```
 
 ---
@@ -111,23 +143,43 @@ Kafka UI is available at <http://localhost:8080>.
 make db-seed      # inserts test products into postgres
 ```
 
-### 4. Run the inventory service
+If you are running an existing container that predates the current schema, apply the idempotent migrations first:
 
 ```bash
-make run-inventory
+make db-migrate
 ```
 
-### 5. Send a test command
+### 4. Run the services
+
+Open two terminals:
 
 ```bash
-make test-reserve   # publishes a ReserveInventory command to Kafka
-make test-release   # publishes a ReleaseInventory command to Kafka
+# terminal 1
+make run-inventory
+
+# terminal 2
+make run-orchestrator
+```
+
+### 5. Run a live saga test
+
+```bash
+make test-saga
+```
+
+This creates a real order, publishes it to Kafka, and acts as a mock payment and notification service — consuming commands and replying with success. The inventory service must be running to handle `inventory.commands`.
+
+### Ad-hoc commands
+
+```bash
+make test-reserve   # publishes a ReserveInventory command directly
+make test-release   # publishes a ReleaseInventory command directly
 ```
 
 ### Shortcuts
 
 ```bash
-make dev          # start + seed in one step
+make dev          # start + seed in one step, then prints next steps
 make logs         # tail docker-compose logs
 make clean        # tear down containers and volumes
 ```
@@ -142,19 +194,17 @@ make clean        # tear down containers and volumes
 go test ./...
 ```
 
-No external services required — repository tests are excluded unless the `integration` build tag is set.
+No external services required.
 
 ### Integration tests
 
-Integration tests use **Testcontainers** to spin up real PostgreSQL and Kafka instances automatically.
+Integration tests use **Testcontainers** to spin up real PostgreSQL and Kafka instances automatically. Docker must be running.
 
 ```bash
 make test-integration
-# or directly:
-go test -v -tags=integration -count=1 -timeout=120s ./...
 ```
 
-Docker must be running. The first run will pull the container images.
+This runs both the inventory and orchestrator integration suites. The first run will pull the container images.
 
 ---
 
