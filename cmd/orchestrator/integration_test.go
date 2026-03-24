@@ -656,6 +656,8 @@ func TestSagaCompensationFailure_SetsRetryState(t *testing.T) {
 
 	order := createTestOrder(t, testDB, []*models.Product{product})
 
+	testStart := time.Now()
+
 	ctx := context.Background()
 	cancel := startOrchestrator(ctx, t, testCfg, testDB)
 	defer cancel()
@@ -684,5 +686,5 @@ func TestSagaCompensationFailure_SetsRetryState(t *testing.T) {
 	assert.Equal(t, models.SagaCompensating, saga.Status, "saga should remain in COMPENSATING status for retry")
 	assert.Equal(t, 1, saga.CompensationRetries, "compensation retries should be 1")
 	assert.NotNil(t, saga.NextRetryAt, "next retry time should be set")
-	assert.True(t, saga.NextRetryAt.After(time.Now().Add(-1*time.Second)), "next retry should be in the future")
+	assert.True(t, saga.NextRetryAt.After(testStart), "next retry should be scheduled after test began")
 }
