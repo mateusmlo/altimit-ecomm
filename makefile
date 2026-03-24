@@ -26,7 +26,7 @@ setup:
 	go mod tidy
 	@echo "Creating .env file if it doesn't exist..."
 	@test -f .env || cp .env.example .env
-	@echo "Setup complete!"
+	@echo "Setup complete! 🥳"
 
 # Start infrastructure
 start:
