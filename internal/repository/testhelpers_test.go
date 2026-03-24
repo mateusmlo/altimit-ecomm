@@ -78,7 +78,7 @@ func newTestSagaState(orderID uuid.UUID, overrides ...func(*models.SagaState)) *
 	s := &models.SagaState{
 		SagaID:      uuid.New(),
 		OrderID:     orderID,
-		Status:      models.SagaStatusStarted,
+		Status:      models.SagaStarted,
 		CurrentStep: models.StepReserveInventory,
 		Payload:     sonic.NoCopyRawMessage(`{"test": true}`),
 		StartedAt:   time.Now().UTC(),

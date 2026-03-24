@@ -23,7 +23,9 @@ CREATE TYPE saga_status AS ENUM (
     'IN_PROGRESS',
     'CANCELLED',
     'FAILED',
-    'COMPENSATED'
+    'COMPENSATED',
+    'COMPENSATING',
+    'COMPENSATION_FAILED'
 );
 
 -- Reservation status enum type
@@ -57,7 +59,7 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE TABLE IF NOT EXISTS order_items (
     id UUID PRIMARY KEY,
     order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    product_id UUID NOT NULL REFERENCES products(product_id) ON DELETE RESTRICT,
+    item_id UUID NOT NULL REFERENCES products(product_id) ON DELETE RESTRICT,
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     price DECIMAL(10, 2) NOT NULL CHECK (price >= 0)
 );
@@ -89,6 +91,8 @@ CREATE TABLE IF NOT EXISTS saga_state (
     order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
     current_step VARCHAR(50) NOT NULL,
     status saga_status NOT NULL DEFAULT 'STARTED',
+    next_retry_at TIMESTAMPTZ,
+    compensation_retries INTEGER NOT NULL DEFAULT 0,
     payload JSONB,
     started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP

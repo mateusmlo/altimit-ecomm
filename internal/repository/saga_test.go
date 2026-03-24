@@ -108,12 +108,12 @@ func TestSagaUpdateStatus(t *testing.T) {
 	saga := newTestSagaState(uuid.New())
 	require.NoError(t, repo.Create(ctx, saga))
 
-	err := repo.UpdateStatus(ctx, saga.SagaID, models.SagaStatusCompleted)
+	err := repo.UpdateStatus(ctx, saga.SagaID, models.SagaCompleted)
 	require.NoError(t, err)
 
 	fetched, err := repo.GetByID(ctx, saga.SagaID)
 	require.NoError(t, err)
-	assert.Equal(t, models.SagaStatusCompleted, fetched.Status)
+	assert.Equal(t, models.SagaCompleted, fetched.Status)
 }
 
 func TestSagaUpdateStep(t *testing.T) {
@@ -140,13 +140,13 @@ func TestSagaUpdateStepAndStatus(t *testing.T) {
 	saga := newTestSagaState(uuid.New())
 	require.NoError(t, repo.Create(ctx, saga))
 
-	err := repo.UpdateStepAndStatus(ctx, saga.SagaID, models.StepProcessPayment, models.SagaStatusInProgress)
+	err := repo.UpdateStepAndStatus(ctx, saga.SagaID, models.StepProcessPayment, models.SagaInProgress)
 	require.NoError(t, err)
 
 	fetched, err := repo.GetByID(ctx, saga.SagaID)
 	require.NoError(t, err)
 	assert.Equal(t, models.StepProcessPayment, fetched.CurrentStep)
-	assert.Equal(t, models.SagaStatusInProgress, fetched.Status)
+	assert.Equal(t, models.SagaInProgress, fetched.Status)
 }
 
 func TestSagaDelete(t *testing.T) {
@@ -202,16 +202,16 @@ func TestSagaGetByStatus(t *testing.T) {
 	}
 	for i := 0; i < 2; i++ {
 		s := newTestSagaState(uuid.New(), func(s *models.SagaState) {
-			s.Status = models.SagaStatusCompleted
+			s.Status = models.SagaCompleted
 		})
 		require.NoError(t, repo.Create(ctx, s))
 	}
 
-	started, err := repo.GetByStatus(ctx, models.SagaStatusStarted, 10, 0)
+	started, err := repo.GetByStatus(ctx, models.SagaStarted, 10, 0)
 	require.NoError(t, err)
 	assert.Len(t, started, 3)
 
-	completed, err := repo.GetByStatus(ctx, models.SagaStatusCompleted, 10, 0)
+	completed, err := repo.GetByStatus(ctx, models.SagaCompleted, 10, 0)
 	require.NoError(t, err)
 	assert.Len(t, completed, 2)
 }

@@ -57,7 +57,8 @@ func TestMain(m *testing.M) {
 	enums := []string{
 		`DO $$ BEGIN CREATE TYPE order_status AS ENUM ('PENDING','PROCESSING','COMPLETED','CANCELLED','FAILED'); EXCEPTION WHEN duplicate_object THEN null; END $$`,
 		`DO $$ BEGIN CREATE TYPE payment_status AS ENUM ('PENDING','PROCESSING','COMPLETED','FAILED','REFUNDED'); EXCEPTION WHEN duplicate_object THEN null; END $$`,
-		`DO $$ BEGIN CREATE TYPE saga_status AS ENUM ('STARTED','COMPLETED','IN_PROGRESS','CANCELLED','FAILED','COMPENSATED'); EXCEPTION WHEN duplicate_object THEN null; END $$`,
+		`DO $$ BEGIN CREATE TYPE saga_status AS ENUM ('STARTED','COMPLETED','IN_PROGRESS','CANCELLED','FAILED','COMPENSATED','COMPENSATING','COMPENSATION_FAILED'); EXCEPTION WHEN duplicate_object THEN null; END $$`,
+		`DO $$ BEGIN CREATE TYPE reservation_status AS ENUM ('ACTIVE','RELEASED','CONFIRMED'); EXCEPTION WHEN duplicate_object THEN null; END $$`,
 	}
 	for _, sql := range enums {
 		if err := testDB.Exec(sql).Error; err != nil {

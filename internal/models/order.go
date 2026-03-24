@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // OrderStatus represents the status of an order.
@@ -26,6 +27,11 @@ type Order struct {
 	Status      OrderStatus `json:"status" gorm:"type:order_status;not null;index"`
 	CreatedAt   time.Time   `json:"created_at" gorm:"not null;default:CURRENT_TIMESTAMP;index"`
 	UpdatedAt   time.Time   `json:"updated_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
+}
+
+func (o *Order) BeforeCreate(tx *gorm.DB) error {
+	o.ID = uuid.New()
+	return nil
 }
 
 func (o *Order) Total() float64 {

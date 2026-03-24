@@ -1,6 +1,14 @@
 package models
 
-import "github.com/google/uuid"
+import (
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+)
+
+func (o *OrderItem) BeforeCreate(tx *gorm.DB) error {
+	o.ID = uuid.New()
+	return nil
+}
 
 type OrderItem struct {
 	ID       uuid.UUID `json:"id" gorm:"type:uuid;primaryKey"`

@@ -5,18 +5,21 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type SagaStatus string
 type SagaStep string
 
 const (
-	SagaStatusStarted     SagaStatus = "STARTED"
-	SagaStatusCompleted   SagaStatus = "COMPLETED"
-	SagaStatusInProgress  SagaStatus = "IN_PROGRESS"
-	SagaStatusCancelled   SagaStatus = "CANCELLED"
-	SagaStatusFailed      SagaStatus = "FAILED"
-	SagaStatusCompensated SagaStatus = "COMPENSATED"
+	SagaStarted            SagaStatus = "STARTED"
+	SagaCompleted          SagaStatus = "COMPLETED"
+	SagaInProgress         SagaStatus = "IN_PROGRESS"
+	SagaCancelled          SagaStatus = "CANCELLED"
+	SagaFailed             SagaStatus = "FAILED"
+	SagaCompensated        SagaStatus = "COMPENSATED"
+	SagaCompensating       SagaStatus = "COMPENSATING"
+	SagaCompensationFailed SagaStatus = "COMPENSATION_FAILED"
 
 	StepReserveInventory    SagaStep = "RESERVE_INVENTORY"
 	StepProcessPayment      SagaStep = "PROCESS_PAYMENT"
@@ -26,13 +29,20 @@ const (
 )
 
 type SagaState struct {
-	SagaID      uuid.UUID              `json:"saga_id" gorm:"type:uuid;primaryKey"`
-	OrderID     uuid.UUID              `json:"order_id" gorm:"type:uuid;not null;index"`
-	Status      SagaStatus             `json:"status" gorm:"type:saga_status;not null;default:STARTED;index"`
-	CurrentStep SagaStep               `json:"current_step" gorm:"type:varchar(50);not null"`
-	Payload     sonic.NoCopyRawMessage `json:"payload" gorm:"type:jsonb"`
-	StartedAt   time.Time              `json:"started_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
-	UpdatedAt   time.Time              `json:"updated_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
+	SagaID              uuid.UUID              `json:"saga_id" gorm:"type:uuid;primaryKey"`
+	OrderID             uuid.UUID              `json:"order_id" gorm:"type:uuid;not null;index"`
+	Status              SagaStatus             `json:"status" gorm:"type:saga_status;not null;default:STARTED;index"`
+	CurrentStep         SagaStep               `json:"current_step" gorm:"type:varchar(50);not null"`
+	CompensationRetries int                    `json:"compensation_retries" gorm:"default:0"`
+	NextRetryAt         *time.Time             `json:"next_retry_at" gorm:"type:timestamptz"`
+	Payload             sonic.NoCopyRawMessage `json:"payload" gorm:"type:jsonb"`
+	StartedAt           time.Time              `json:"started_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt           time.Time              `json:"updated_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
+}
+
+func (s *SagaState) BeforeCreate(tx *gorm.DB) error {
+	s.SagaID = uuid.New()
+	return nil
 }
 
 type SagaWorkflow struct {
@@ -40,10 +50,13 @@ type SagaWorkflow struct {
 }
 
 type StepDefinition struct {
-	Step             SagaStep
-	CommandTopic     string
-	ReplyTopic       string
-	CompensationStep *SagaStep
+	Step                  SagaStep
+	EventType             EventType
+	CommandTopic          string
+	ReplyTopic            string
+	CompensationStep         *SagaStep
+	CompensationEventType    EventType
+	CompensationCommandTopic string
 }
 
 func GetOrderWorkflow() *SagaWorkflow {
@@ -51,21 +64,28 @@ func GetOrderWorkflow() *SagaWorkflow {
 		Steps: []StepDefinition{
 			{
 				Step:             StepReserveInventory,
+				EventType:        EventReserveInventory,
 				CommandTopic:     "inventory.commands",
 				ReplyTopic:       "inventory.replies",
 				CompensationStep: nil,
 			},
 			{
-				Step:             StepProcessPayment,
-				CommandTopic:     "payment.commands",
-				ReplyTopic:       "payment.replies",
-				CompensationStep: ptrTo(StepCompensateInventory),
+				Step:                     StepProcessPayment,
+				EventType:                EventProcessPayment,
+				CommandTopic:             "payment.commands",
+				ReplyTopic:               "payment.replies",
+				CompensationStep:         ptrTo(StepCompensateInventory),
+				CompensationEventType:    EventReleaseInventory,
+				CompensationCommandTopic: "inventory.commands",
 			},
 			{
-				Step:             StepSendNotification,
-				CommandTopic:     "notification.commands",
-				ReplyTopic:       "notification.replies",
-				CompensationStep: ptrTo(StepCompensatePayment),
+				Step:                     StepSendNotification,
+				EventType:                EventSendNotification,
+				CommandTopic:             "notification.commands",
+				ReplyTopic:               "notification.replies",
+				CompensationStep:         ptrTo(StepCompensatePayment),
+				CompensationEventType:    EventRefundPayment,
+				CompensationCommandTopic: "payment.commands",
 			},
 		},
 	}

@@ -29,25 +29,11 @@ func NewOrderRepository(db *gorm.DB) OrderRepository {
 }
 
 func (r *orderRepository) Create(ctx context.Context, order *models.Order) error {
-	if order.ID == uuid.Nil {
-		order.ID = uuid.New()
-	}
 	order.CreatedAt = time.Now()
 	order.UpdatedAt = time.Now()
-
-	// Calculate total amount from items
 	order.TotalAmount = order.Total()
 
-	// Assign IDs to items before creating
-	for i := range order.Items {
-		order.Items[i].OrderID = order.ID
-		if order.Items[i].ID == uuid.Nil {
-			order.Items[i].ID = uuid.New()
-		}
-	}
-
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// GORM auto-creates associated Items via the foreignKey tag
 		return tx.Create(order).Error
 	})
 }
