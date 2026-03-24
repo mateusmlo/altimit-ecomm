@@ -108,12 +108,12 @@ func TestSagaUpdateStatus(t *testing.T) {
 	saga := newTestSagaState(uuid.New())
 	require.NoError(t, repo.Create(ctx, saga))
 
-	err := repo.UpdateStatus(ctx, saga.SagaID, models.SagaStatusCompleted)
+	err := repo.UpdateStatus(ctx, saga.SagaID, models.SagaCompleted)
 	require.NoError(t, err)
 
 	fetched, err := repo.GetByID(ctx, saga.SagaID)
 	require.NoError(t, err)
-	assert.Equal(t, models.SagaStatusCompleted, fetched.Status)
+	assert.Equal(t, models.SagaCompleted, fetched.Status)
 }
 
 func TestSagaUpdateStep(t *testing.T) {
