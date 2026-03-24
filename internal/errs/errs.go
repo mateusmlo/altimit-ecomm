@@ -14,4 +14,7 @@ var (
 	ErrMissingMetadata  = errors.New("metadata header not found")
 	ErrMalformedPayload = errors.New("malformed payload")
 	ErrUnknownEvent     = errors.New("unknown event type")
+
+	// Orders
+	ErrOrderInProgress = errors.New("order already in progress")
 )

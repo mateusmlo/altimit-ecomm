@@ -20,6 +20,7 @@ type SagaRepository interface {
 	Delete(ctx context.Context, sagaID uuid.UUID) error
 	List(ctx context.Context, limit, offset int) ([]*models.SagaState, error)
 	GetByStatus(ctx context.Context, status models.SagaStatus, limit, offset int) ([]*models.SagaState, error)
+	FindRetryable(ctx context.Context, now time.Time) ([]models.SagaState, error)
 }
 
 type sagaRepository struct {
@@ -31,9 +32,6 @@ func NewSagaRepository(db *gorm.DB) SagaRepository {
 }
 
 func (r *sagaRepository) Create(ctx context.Context, sagaState *models.SagaState) error {
-	if sagaState.SagaID == uuid.Nil {
-		sagaState.SagaID = uuid.New()
-	}
 	sagaState.StartedAt = time.Now()
 	sagaState.UpdatedAt = time.Now()
 	return r.db.WithContext(ctx).Create(sagaState).Error
@@ -106,6 +104,20 @@ func (r *sagaRepository) List(ctx context.Context, limit, offset int) ([]*models
 		Order("started_at DESC").
 		Limit(limit).
 		Offset(offset).
+		Find(&sagaStates).Error
+	if err != nil {
+		return nil, err
+	}
+	return sagaStates, nil
+}
+
+func (r *sagaRepository) FindRetryable(ctx context.Context, now time.Time) ([]models.SagaState, error) {
+	var sagaStates []models.SagaState
+	err := r.db.WithContext(ctx).
+		Where("status IN ? AND (next_retry_at IS NULL OR next_retry_at <= ?)",
+			[]models.SagaStatus{models.SagaCompensating, models.SagaCompensationFailed},
+			now,
+		).
 		Find(&sagaStates).Error
 	if err != nil {
 		return nil, err
