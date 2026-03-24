@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type PaymentStatus string
@@ -15,6 +16,11 @@ const (
 	PaymentFailed     PaymentStatus = "FAILED"
 	PaymentRefunded   PaymentStatus = "REFUNDED"
 )
+
+func (p *Payment) BeforeCreate(tx *gorm.DB) error {
+	p.ID = uuid.New()
+	return nil
+}
 
 type Payment struct {
 	ID        uuid.UUID     `json:"id" gorm:"type:uuid;primaryKey"`

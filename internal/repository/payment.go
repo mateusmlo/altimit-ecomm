@@ -29,9 +29,6 @@ func NewPaymentRepository(db *gorm.DB) PaymentRepository {
 }
 
 func (r *paymentRepository) Create(ctx context.Context, payment *models.Payment) error {
-	if payment.ID == uuid.Nil {
-		payment.ID = uuid.New()
-	}
 	payment.CreatedAt = time.Now()
 	return r.db.WithContext(ctx).Create(payment).Error
 }

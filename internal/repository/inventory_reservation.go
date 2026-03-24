@@ -64,7 +64,6 @@ func (r *inventoryReservationRepository) ReserveItems(ctx context.Context, order
 		reservations = make([]models.InventoryReservation, len(items))
 		for i, item := range items {
 			reservations[i] = models.InventoryReservation{
-				ID:        uuid.New(),
 				OrderID:   orderID,
 				ProductID: item.ProductID,
 				Quantity:  item.Quantity,
