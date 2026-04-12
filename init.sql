@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS orders (
     customer_id VARCHAR(255) NOT NULL,
     public_id VARCHAR(255) NOT NULL,
     total_amount DECIMAL(10, 2) NOT NULL,
+    currency VARCHAR(3) NOT NULL DEFAULT 'USD',
     status order_status NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -81,7 +82,9 @@ CREATE TABLE IF NOT EXISTS payments (
     id UUID PRIMARY KEY,
     order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
     amount DECIMAL(10, 2) NOT NULL CHECK (amount > 0),
+    currency TEXT NOT NULL,
     status payment_status NOT NULL DEFAULT 'PENDING',
+    payment_intent_id TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
