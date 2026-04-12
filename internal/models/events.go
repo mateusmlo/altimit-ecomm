@@ -22,8 +22,10 @@ const (
 	EventInventoryReleased      EventType = "INVENTORY_RELEASED"
 	EventReserveInventoryFailed EventType = "RESERVE_INVENTORY_FAILED"
 	EventReleaseInventoryFailed EventType = "RELEASE_INVENTORY_FAILED"
-	EventPaymentProcessed       EventType = "PAYMENT_PROCESSED"
+	EventPaymentSucceeded       EventType = "PAYMENT_SUCCEEDED"
 	EventPaymentFailed          EventType = "PAYMENT_FAILED"
+	EventRefundSucceeded        EventType = "REFUND_SUCCEEDED"
+	EventRefundFailed           EventType = "REFUND_FAILED"
 	EventNotificationSent       EventType = "NOTIFICATION_SENT"
 	EventNotificationFailed     EventType = "NOTIFICATION_FAILED"
 )
@@ -53,13 +55,13 @@ type ReleaseInventoryCommand struct {
 }
 
 type ProcessPaymentCommand struct {
-	Amount     float64 `json:"amount"`
-	CustomerID string  `json:"customer_id"`
+	OrderID  uuid.UUID `json:"order_id"`
+	Amount   float64   `json:"amount"`
+	Currency string    `json:"currency"`
 }
 
 type RefundPaymentCommand struct {
-	PaymentID string  `json:"payment_id"`
-	Amount    float64 `json:"amount"`
+	OrderID uuid.UUID `json:"order_id"`
 }
 
 type SendNotificationCommand struct {
@@ -75,9 +77,9 @@ type InventoryReply struct {
 }
 
 type PaymentReply struct {
-	Success   bool   `json:"success"`
-	PaymentID string `json:"payment_id,omitempty"`
-	Message   string `json:"message"`
+	Success         bool   `json:"success"`
+	PaymentIntentID string `json:"payment_intent_id,omitempty"`
+	Message         string `json:"message"`
 }
 
 type NotificationReply struct {
