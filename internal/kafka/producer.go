@@ -2,11 +2,14 @@ package kafka
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"time"
 
 	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
 	"github.com/mateusmlo/altimit-ecomm/internal/config"
+	"github.com/mateusmlo/altimit-ecomm/internal/errs"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -43,6 +46,42 @@ func NewProducer(cfg *config.Config) (*Producer, error) {
 	}
 
 	return &Producer{Client: client, cfg: cfg}, nil
+}
+
+// ExtractMetadata parses the "metadata" header from a Kafka record.
+func ExtractMetadata(headers []kgo.RecordHeader) (*RecordMetadata, error) {
+	var metadataBytes []byte
+	for _, h := range headers {
+		if h.Key == "metadata" {
+			metadataBytes = h.Value
+			break
+		}
+	}
+	if metadataBytes == nil {
+		return nil, errs.ErrMissingMetadata
+	}
+	var metadata RecordMetadata
+	if err := sonic.Unmarshal(metadataBytes, &metadata); err != nil {
+		return nil, fmt.Errorf("%w: %w", errs.ErrMalformedPayload, err)
+	}
+	return &metadata, nil
+}
+
+// PublishReply marshals reply and publishes it as a saga event to the given topic.
+func PublishReply(ctx context.Context, producer EventPublisher, topic string, metadata *RecordMetadata, replyEvent models.EventType, reply any) error {
+	replyPayload, err := sonic.Marshal(reply)
+	if err != nil {
+		return err
+	}
+	ev := models.Event{
+		Event:     replyEvent,
+		EventID:   uuid.New(),
+		SagaID:    metadata.SagaID,
+		OrderID:   metadata.OrderID,
+		Timestamp: time.Now().Unix(),
+		Payload:   replyPayload,
+	}
+	return producer.PublishEvent(ctx, topic, []byte(ev.OrderID.String()), ev)
 }
 
 func (p *Producer) PublishEvent(ctx context.Context, topic string, key []byte, ev models.Event) error {
