@@ -12,6 +12,7 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
 	"github.com/mateusmlo/altimit-ecomm/internal/config"
+	"github.com/mateusmlo/altimit-ecomm/internal/errs"
 	"github.com/mateusmlo/altimit-ecomm/internal/kafka"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"github.com/mateusmlo/altimit-ecomm/internal/repository"
@@ -271,8 +272,8 @@ func (o *orchestrator) ProcessCompensationFailure(ctx context.Context, sagaID uu
 	// TODO: Alert in monitoring channels
 	// TODO: Publish to DLQ
 
-	return fmt.Errorf(
-		"compensation permanently failed for SAGA %s at step %s after %d retries",
+	return fmt.Errorf("%w: saga %s at step %s after %d retries",
+		errs.ErrCompensationFailed,
 		sagaID,
 		saga.CurrentStep,
 		saga.CompensationRetries,
@@ -350,8 +351,9 @@ func (o *orchestrator) buildCommandForStep(
 
 	case models.StepProcessPayment:
 		cmd = &models.ProcessPaymentCommand{
-			Amount:     order.TotalAmount,
-			CustomerID: order.CustomerID,
+			OrderID:  order.ID,
+			Amount:   order.TotalAmount,
+			Currency: order.Currency,
 		}
 
 	case models.StepSendNotification:
@@ -366,10 +368,9 @@ func (o *orchestrator) buildCommandForStep(
 			Products: orderItemsToInventoryProducts(order.Items),
 		}
 
-	//TODO: missing paymentID
 	case models.StepCompensatePayment:
 		cmd = &models.RefundPaymentCommand{
-			Amount: order.TotalAmount,
+			OrderID: order.ID,
 		}
 
 	default:
