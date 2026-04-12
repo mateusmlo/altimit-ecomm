@@ -195,7 +195,7 @@ func TestHandleRecord_RoutesToReply(t *testing.T) {
 	topics := []string{"inventory.replies", "payment.replies", "notification.replies"}
 	eventTypes := []models.EventType{
 		models.EventInventoryReserved,
-		models.EventPaymentProcessed,
+		models.EventPaymentSucceeded,
 		models.EventNotificationSent,
 	}
 	replies := []any{
@@ -558,11 +558,11 @@ func TestUnmarshalReply_PaymentEvents(t *testing.T) {
 	h := newHandlerWithMocks(&mockOrchestrator{}, &mockHandlerOrderRepo{})
 
 	events := []models.EventType{
-		models.EventPaymentProcessed,
+		models.EventPaymentSucceeded,
 		models.EventPaymentFailed,
 	}
 
-	payload := makeReplyPayload(t, &models.PaymentReply{Success: true, PaymentID: "pay-123"})
+	payload := makeReplyPayload(t, &models.PaymentReply{Success: true, PaymentIntentID: "pay-123"})
 
 	for _, ev := range events {
 		t.Run(string(ev), func(t *testing.T) {

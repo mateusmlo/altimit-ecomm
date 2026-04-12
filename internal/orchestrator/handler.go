@@ -63,7 +63,7 @@ func (h *Handler) handleNewOrder(ctx context.Context, rec *kgo.Record) error {
 }
 
 func (h *Handler) handleReply(ctx context.Context, rec *kgo.Record) error {
-	metadata, err := h.extractMedatada(rec.Headers)
+	metadata, err := kafka.ExtractMetadata(rec.Headers)
 	if err != nil {
 		return err
 	}
@@ -107,28 +107,6 @@ func (h *Handler) handleReply(ctx context.Context, rec *kgo.Record) error {
 	}
 }
 
-func (h *Handler) extractMedatada(headers []kgo.RecordHeader) (*kafka.RecordMetadata, error) {
-	var metadataBytes []byte
-	var metadata kafka.RecordMetadata
-
-	for _, h := range headers {
-		if h.Key == "metadata" {
-			metadataBytes = append(metadataBytes, h.Value...)
-			break
-		}
-	}
-
-	if metadataBytes == nil {
-		return nil, errs.ErrMissingMetadata
-	}
-
-	if err := sonic.Unmarshal(metadataBytes, &metadata); err != nil {
-		return nil, fmt.Errorf("%w: %w", errs.ErrMalformedPayload, err)
-	}
-
-	return &metadata, nil
-}
-
 func (h *Handler) unmarshalReplyByEventType(eventType models.EventType, payload []byte) (any, error) {
 	switch eventType {
 	case models.EventInventoryReserved,
@@ -141,8 +119,10 @@ func (h *Handler) unmarshalReplyByEventType(eventType models.EventType, payload 
 		}
 		return &reply, nil
 
-	case models.EventPaymentProcessed,
-		models.EventPaymentFailed:
+	case models.EventPaymentSucceeded,
+		models.EventPaymentFailed,
+		models.EventRefundSucceeded,
+		models.EventRefundFailed:
 		var reply models.PaymentReply
 		if err := sonic.Unmarshal(payload, &reply); err != nil {
 			return nil, err

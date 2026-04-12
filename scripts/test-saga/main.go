@@ -120,13 +120,13 @@ func main() {
 			switch {
 			case rec.Topic == cfg.Topics.Commands.Payment && meta.EventType == models.EventProcessPayment:
 				fmt.Printf("[payment]      << received PROCESS_PAYMENT command\n")
-				sendReply(ctx, replier, cfg.Topics.Replies.Payment, meta, models.EventPaymentProcessed,
-					&models.PaymentReply{Success: true, PaymentID: uuid.NewString(), Message: "charged"})
+				sendReply(ctx, replier, cfg.Topics.Replies.Payment, meta, models.EventPaymentSucceeded,
+					&models.PaymentReply{Success: true, PaymentIntentID: uuid.NewString(), Message: "charged"})
 				fmt.Printf("[payment]      >> replied PAYMENT_PROCESSED\n")
 
 			case rec.Topic == cfg.Topics.Commands.Payment && meta.EventType == models.EventRefundPayment:
 				fmt.Printf("[payment]      << received REFUND_PAYMENT command\n")
-				sendReply(ctx, replier, cfg.Topics.Replies.Payment, meta, models.EventPaymentProcessed,
+				sendReply(ctx, replier, cfg.Topics.Replies.Payment, meta, models.EventPaymentSucceeded,
 					&models.PaymentReply{Success: true, Message: "refunded"})
 				fmt.Printf("[payment]      >> replied PAYMENT_PROCESSED (refund)\n")
 
