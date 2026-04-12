@@ -23,6 +23,7 @@ type Order struct {
 	PublicID    string      `json:"public_id" gorm:"type:varchar(255);not null;index"`
 	CustomerID  string      `json:"customer_id" gorm:"type:varchar(255);not null;index"`
 	TotalAmount float64     `json:"total_amount" gorm:"type:decimal(10,2);not null"`
+	Currency    string      `json:"currency" gorm:"type:varchar(3);not null;default:'USD'"`
 	Items       []OrderItem `json:"items" gorm:"foreignKey:OrderID"`
 	Status      OrderStatus `json:"status" gorm:"type:order_status;not null;index"`
 	CreatedAt   time.Time   `json:"created_at" gorm:"not null;default:CURRENT_TIMESTAMP;index"`
