@@ -20,7 +20,6 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
 	"github.com/mateusmlo/altimit-ecomm/internal/config"
-	"github.com/mateusmlo/altimit-ecomm/internal/kafka"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"github.com/twmb/franz-go/pkg/kgo"
 	gormPG "gorm.io/driver/postgres"
@@ -214,10 +213,10 @@ func publishOrder(ctx context.Context, cfg *config.Config, order *models.Order) 
 	}
 }
 
-func extractMetadata(rec *kgo.Record) *kafka.RecordMetadata {
+func extractMetadata(rec *kgo.Record) *models.RecordMetadata {
 	for _, h := range rec.Headers {
 		if h.Key == "metadata" {
-			var m kafka.RecordMetadata
+			var m models.RecordMetadata
 			if err := sonic.Unmarshal(h.Value, &m); err != nil {
 				return nil
 			}
@@ -227,13 +226,13 @@ func extractMetadata(rec *kgo.Record) *kafka.RecordMetadata {
 	return nil
 }
 
-func sendReply(ctx context.Context, client *kgo.Client, topic string, meta *kafka.RecordMetadata, eventType models.EventType, reply any) {
+func sendReply(ctx context.Context, client *kgo.Client, topic string, meta *models.RecordMetadata, eventType models.EventType, reply any) {
 	payload, err := sonic.Marshal(reply)
 	if err != nil {
 		log.Fatalf("Failed to marshal reply: %v", err)
 	}
 
-	replyMeta := kafka.RecordMetadata{
+	replyMeta := models.RecordMetadata{
 		EventType: eventType,
 		EventID:   uuid.New(),
 		SagaID:    meta.SagaID,
@@ -241,7 +240,7 @@ func sendReply(ctx context.Context, client *kgo.Client, topic string, meta *kafk
 		Timestamp: time.Now().Unix(),
 	}
 
-	metaBytes, err := replyMeta.MarshalBinary()
+	metaBytes, err := sonic.Marshal(replyMeta)
 	if err != nil {
 		log.Fatalf("Failed to marshal metadata: %v", err)
 	}
