@@ -216,6 +216,43 @@ func TestValidate(t *testing.T) {
 		{
 			name: "missing stripe secret key",
 			config: &Config{
+				Kafka: KafkaConfig{
+					Brokers: []string{"localhost:9092"},
+				},
+				Postgres: PostgresConfig{
+					User:     "user",
+					Password: "pass",
+					DB:       "db",
+					Host:     "localhost",
+					Port:     5432,
+				},
+				Redis: RedisConfig{
+					Host: "localhost",
+					Port: 6379,
+				},
+				Topics: TopicsConfig{
+					Commands: CommandTopics{
+						Orders:       "orders",
+						Inventory:    "inventory.commands",
+						Payment:      "payment.commands",
+						Notification: "notification.commands",
+					},
+					Replies: ReplyTopics{
+						Inventory:    "inventory.replies",
+						Payment:      "payment.replies",
+						Notification: "notification.replies",
+					},
+					DLQ: DLQTopics{
+						Orders: "orders.dlq",
+					},
+				},
+				ConsumerGroups: ConsumerGroupsConfig{
+					SagaOrchestrator:    "saga-orchestrator",
+					InventoryService:    "inventory-service",
+					PaymentService:      "payment-service",
+					NotificationService: "notification-service",
+				},
+				Region: "US",
 				Stripe: StripeConfig{
 					SecretKey: "",
 				},

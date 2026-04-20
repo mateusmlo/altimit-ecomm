@@ -143,7 +143,7 @@ type mockPublisher struct {
 	lastEvent  models.Event
 }
 
-func (m *mockPublisher) PublishEvent(_ context.Context, topic string, _ []byte, ev models.Event) error {
+func (m *mockPublisher) PublishEvent(_ context.Context, topic string, ev models.Event) error {
 	m.lastTopic = topic
 	m.lastEvent = ev
 	return m.publishErr

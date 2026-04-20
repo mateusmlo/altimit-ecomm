@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/mateusmlo/altimit-ecomm/internal/config"
 	"github.com/mateusmlo/altimit-ecomm/internal/errs"
-	"github.com/mateusmlo/altimit-ecomm/internal/kafka"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -148,9 +147,9 @@ func handlerTestConfig() *config.Config {
 	}
 }
 
-func makeMetadataHeader(t *testing.T, m kafka.RecordMetadata) kgo.RecordHeader {
+func makeMetadataHeader(t *testing.T, m models.RecordMetadata) kgo.RecordHeader {
 	t.Helper()
-	b, err := m.MarshalBinary()
+	b, err := sonic.Marshal(m)
 	require.NoError(t, err)
 	return kgo.RecordHeader{Key: "metadata", Value: b}
 }
@@ -215,7 +214,7 @@ func TestHandleRecord_RoutesToReply(t *testing.T) {
 			}
 			h := newHandlerWithMocks(orch, &mockHandlerOrderRepo{})
 
-			meta := kafka.RecordMetadata{
+			meta := models.RecordMetadata{
 				EventType: eventTypes[i],
 				SagaID:    sagaID,
 				OrderID:   uuid.New(),
@@ -329,7 +328,7 @@ func TestHandleReply_SagaNotFound(t *testing.T) {
 	orch := &mockOrchestrator{getSagaStateErr: sagaErr}
 	h := newHandlerWithMocks(orch, &mockHandlerOrderRepo{})
 
-	meta := kafka.RecordMetadata{
+	meta := models.RecordMetadata{
 		EventType: models.EventInventoryReserved,
 		SagaID:    uuid.New(),
 		OrderID:   uuid.New(),
@@ -350,7 +349,7 @@ func TestHandleReply_InProgressSuccess(t *testing.T) {
 	}
 	h := newHandlerWithMocks(orch, &mockHandlerOrderRepo{})
 
-	meta := kafka.RecordMetadata{
+	meta := models.RecordMetadata{
 		EventType: models.EventInventoryReserved,
 		SagaID:    sagaID,
 		OrderID:   uuid.New(),
@@ -373,7 +372,7 @@ func TestHandleReply_InProgressFailure(t *testing.T) {
 	}
 	h := newHandlerWithMocks(orch, &mockHandlerOrderRepo{})
 
-	meta := kafka.RecordMetadata{
+	meta := models.RecordMetadata{
 		EventType: models.EventReserveInventoryFailed,
 		SagaID:    sagaID,
 		OrderID:   uuid.New(),
@@ -396,7 +395,7 @@ func TestHandleReply_StartedSuccess(t *testing.T) {
 	}
 	h := newHandlerWithMocks(orch, &mockHandlerOrderRepo{})
 
-	meta := kafka.RecordMetadata{
+	meta := models.RecordMetadata{
 		EventType: models.EventInventoryReserved,
 		SagaID:    sagaID,
 		OrderID:   uuid.New(),
@@ -418,7 +417,7 @@ func TestHandleReply_CompensatingSuccess(t *testing.T) {
 	}
 	h := newHandlerWithMocks(orch, &mockHandlerOrderRepo{})
 
-	meta := kafka.RecordMetadata{
+	meta := models.RecordMetadata{
 		EventType: models.EventInventoryReleased,
 		SagaID:    sagaID,
 		OrderID:   uuid.New(),
@@ -441,7 +440,7 @@ func TestHandleReply_CompensatingFailure(t *testing.T) {
 	}
 	h := newHandlerWithMocks(orch, &mockHandlerOrderRepo{})
 
-	meta := kafka.RecordMetadata{
+	meta := models.RecordMetadata{
 		EventType: models.EventReleaseInventoryFailed,
 		SagaID:    sagaID,
 		OrderID:   uuid.New(),
@@ -469,7 +468,7 @@ func TestHandleReply_BackoffPeriod(t *testing.T) {
 	}
 	h := newHandlerWithMocks(orch, &mockHandlerOrderRepo{})
 
-	meta := kafka.RecordMetadata{
+	meta := models.RecordMetadata{
 		EventType: models.EventInventoryReleased,
 		SagaID:    sagaID,
 		OrderID:   uuid.New(),
@@ -493,7 +492,7 @@ func TestHandleReply_UnexpectedSagaStatus(t *testing.T) {
 	}
 	h := newHandlerWithMocks(orch, &mockHandlerOrderRepo{})
 
-	meta := kafka.RecordMetadata{
+	meta := models.RecordMetadata{
 		EventType: models.EventInventoryReserved,
 		SagaID:    sagaID,
 		OrderID:   uuid.New(),
@@ -515,7 +514,7 @@ func TestHandleReply_UnknownEventType(t *testing.T) {
 	}
 	h := newHandlerWithMocks(orch, &mockHandlerOrderRepo{})
 
-	meta := kafka.RecordMetadata{
+	meta := models.RecordMetadata{
 		EventType: models.EventType("TOTALLY_UNKNOWN"),
 		SagaID:    sagaID,
 		OrderID:   uuid.New(),

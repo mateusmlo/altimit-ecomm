@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
 	"github.com/mateusmlo/altimit-ecomm/internal/config"
 	"github.com/mateusmlo/altimit-ecomm/internal/errs"
-	"github.com/mateusmlo/altimit-ecomm/internal/kafka"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,9 +24,9 @@ func newTestHandler(svc *InventoryService) *Handler {
 	}
 }
 
-func makeMetadataHeader(t *testing.T, m kafka.RecordMetadata) kgo.RecordHeader {
+func makeMetadataHeader(t *testing.T, m models.RecordMetadata) kgo.RecordHeader {
 	t.Helper()
-	b, err := m.MarshalBinary()
+	b, err := sonic.Marshal(m)
 	require.NoError(t, err)
 	return kgo.RecordHeader{Key: "metadata", Value: b}
 }
@@ -56,7 +56,7 @@ func TestHandleCommand_InvalidMetadataJSON(t *testing.T) {
 func TestHandleCommand_UnknownEventType(t *testing.T) {
 	h := newTestHandler(NewInventoryService(&mockInventoryRepo{}))
 
-	meta := kafka.RecordMetadata{
+	meta := models.RecordMetadata{
 		EventType: models.EventType("UNKNOWN_EVENT"),
 		EventID:   uuid.New(),
 		SagaID:    uuid.New(),
@@ -74,7 +74,7 @@ func TestHandleCommand_UnknownEventType(t *testing.T) {
 func TestHandleCommand_ReserveInventory_InvalidPayload(t *testing.T) {
 	h := newTestHandler(NewInventoryService(&mockInventoryRepo{}))
 
-	meta := kafka.RecordMetadata{
+	meta := models.RecordMetadata{
 		EventType: models.EventReserveInventory,
 		EventID:   uuid.New(),
 		SagaID:    uuid.New(),
@@ -92,7 +92,7 @@ func TestHandleCommand_ReserveInventory_InvalidPayload(t *testing.T) {
 func TestHandleCommand_ReleaseInventory_InvalidPayload(t *testing.T) {
 	h := newTestHandler(NewInventoryService(&mockInventoryRepo{}))
 
-	meta := kafka.RecordMetadata{
+	meta := models.RecordMetadata{
 		EventType: models.EventReleaseInventory,
 		EventID:   uuid.New(),
 		SagaID:    uuid.New(),
