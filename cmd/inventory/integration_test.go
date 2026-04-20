@@ -216,7 +216,7 @@ func produceCommand(t *testing.T, ctx context.Context, brokers []string, eventTy
 	require.NoError(t, err)
 	defer client.Close()
 
-	metadata := kafka.RecordMetadata{
+	metadata := models.RecordMetadata{
 		EventType: eventType,
 		EventID:   uuid.New(),
 		SagaID:    uuid.New(),
@@ -224,7 +224,7 @@ func produceCommand(t *testing.T, ctx context.Context, brokers []string, eventTy
 		Timestamp: time.Now().Unix(),
 	}
 
-	metadataBytes, err := metadata.MarshalBinary()
+	metadataBytes, err := sonic.Marshal(metadata)
 	require.NoError(t, err)
 
 	rec := &kgo.Record{
@@ -240,7 +240,7 @@ func produceCommand(t *testing.T, ctx context.Context, brokers []string, eventTy
 	require.NoError(t, err)
 }
 
-func consumeReply(t *testing.T, ctx context.Context, brokers []string, orderID uuid.UUID, expectedTypes ...models.EventType) (kafka.RecordMetadata, models.InventoryReply) {
+func consumeReply(t *testing.T, ctx context.Context, brokers []string, orderID uuid.UUID, expectedTypes ...models.EventType) (models.RecordMetadata, models.InventoryReply) {
 	t.Helper()
 
 	groupID := "test-reply-consumer-" + uuid.NewString()[:8]
@@ -277,7 +277,7 @@ func consumeReply(t *testing.T, ctx context.Context, brokers []string, orderID u
 		fetches := client.PollFetches(fetchCtx)
 		cancel()
 
-		var metadata kafka.RecordMetadata
+		var metadata models.RecordMetadata
 		var reply models.InventoryReply
 		var found bool
 
@@ -286,7 +286,7 @@ func consumeReply(t *testing.T, ctx context.Context, brokers []string, orderID u
 				return
 			}
 
-			var m kafka.RecordMetadata
+			var m models.RecordMetadata
 			for _, h := range rec.Headers {
 				if h.Key == "metadata" {
 					if err := sonic.Unmarshal(h.Value, &m); err != nil {
