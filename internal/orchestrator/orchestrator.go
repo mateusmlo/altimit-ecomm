@@ -97,7 +97,7 @@ func (o *orchestrator) StartSaga(ctx context.Context, order *models.Order) error
 		Timestamp: time.Now().Unix(),
 	}
 
-	return o.producer.PublishEvent(ctx, o.cfg.Topics.Commands.Inventory, []byte(order.ID.String()), ev)
+	return o.producer.PublishEvent(ctx, o.cfg.Topics.Commands.Inventory, ev)
 }
 
 func (o *orchestrator) GetSagaState(ctx context.Context, sagaID uuid.UUID) (*models.SagaState, error) {
@@ -151,7 +151,7 @@ func (o *orchestrator) ProcessStepSuccess(ctx context.Context, sagaID uuid.UUID)
 		return err
 	}
 
-	return o.producer.PublishEvent(ctx, nextStep.CommandTopic, []byte(order.ID.String()), ev)
+	return o.producer.PublishEvent(ctx, nextStep.CommandTopic, ev)
 }
 
 func (o *orchestrator) ProcessStepFailure(ctx context.Context, sagaID uuid.UUID) error {
@@ -315,7 +315,7 @@ func (o *orchestrator) sendCompensationCommand(
 		return err
 	}
 
-	return o.producer.PublishEvent(ctx, stepToCompensate.CompensationCommandTopic, []byte(order.ID.String()), ev)
+	return o.producer.PublishEvent(ctx, stepToCompensate.CompensationCommandTopic, ev)
 }
 
 func orderItemsToInventoryProducts(items []models.OrderItem) []models.InventoryProduct {

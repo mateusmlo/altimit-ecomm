@@ -37,7 +37,6 @@ func main() {
 
 	sagaRepo := repository.NewSagaRepository(db)
 	orderRepo := repository.NewOrderRepository(db)
-	paymentRepo := repository.NewPaymentRepository(db)
 
 	consumer, err := kafka.NewConsumer(cfg, cfg.ConsumerGroups.SagaOrchestrator, listenTopics)
 	if err != nil {
@@ -48,7 +47,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	orch := orchestrator.NewOrchestrator(sagaRepo, orderRepo, paymentRepo, producer, cfg)
+	orch := orchestrator.NewOrchestrator(sagaRepo, orderRepo, producer, cfg)
 	handler := orchestrator.NewHandler(orch, orderRepo, sagaRepo, cfg)
 
 	wg.Add(2)
