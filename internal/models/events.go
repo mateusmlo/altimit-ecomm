@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/bytedance/sonic"
@@ -30,13 +31,21 @@ const (
 	EventNotificationFailed     EventType = "NOTIFICATION_FAILED"
 )
 
+type RecordMetadata struct {
+	EventType EventType `json:"event_type"`
+	EventID   uuid.UUID `json:"event_id"`
+	SagaID    uuid.UUID `json:"saga_id"`
+	OrderID   uuid.UUID `json:"order_id"`
+	Timestamp int64     `json:"timestamp"`
+}
+
 type Event struct {
-	Event     EventType              `json:"event"`
-	EventID   uuid.UUID              `json:"event_id"`
-	SagaID    uuid.UUID              `json:"saga_id"`
-	OrderID   uuid.UUID              `json:"order_id"`
-	Timestamp int64                  `json:"timestamp"`
-	Payload   sonic.NoCopyRawMessage `json:"payload"`
+	Event     EventType       `json:"event"`
+	EventID   uuid.UUID       `json:"event_id"`
+	SagaID    uuid.UUID       `json:"saga_id"`
+	OrderID   uuid.UUID       `json:"order_id"`
+	Timestamp int64           `json:"timestamp"`
+	Payload   json.RawMessage `json:"payload"`
 }
 
 // Comes from OrderItem struct
@@ -105,4 +114,30 @@ func ValidateInventoryCommand(prods []InventoryProduct) *InventoryReply {
 	}
 
 	return nil
+}
+
+func NewEvent(eventType EventType, metadata *RecordMetadata, payload any) (Event, error) {
+	pld, err := sonic.Marshal(payload)
+	if err != nil {
+		return Event{}, err
+	}
+
+	return Event{
+		Event:     eventType,
+		EventID:   metadata.EventID,
+		SagaID:    metadata.SagaID,
+		OrderID:   metadata.OrderID,
+		Timestamp: metadata.Timestamp,
+		Payload:   pld,
+	}, nil
+}
+
+func NewRecordMetadata(event Event) RecordMetadata {
+	return RecordMetadata{
+		EventType: event.Event,
+		EventID:   event.EventID,
+		SagaID:    event.SagaID,
+		OrderID:   event.OrderID,
+		Timestamp: event.Timestamp,
+	}
 }
