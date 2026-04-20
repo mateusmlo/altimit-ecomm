@@ -348,7 +348,7 @@ func publishOrderCommand(t *testing.T, ctx context.Context, brokers []string, or
 
 // consumeCommand consumes from a command topic, filtering by orderID and optionally by event type.
 // Returns the metadata (containing SagaID needed for reply headers) and the raw payload.
-func consumeCommand(t *testing.T, ctx context.Context, brokers []string, topic string, orderID uuid.UUID, expectedTypes ...models.EventType) (kafka.RecordMetadata, []byte) {
+func consumeCommand(t *testing.T, ctx context.Context, brokers []string, topic string, orderID uuid.UUID, expectedTypes ...models.EventType) (models.RecordMetadata, []byte) {
 	t.Helper()
 
 	groupID := "test-cmd-consumer-" + uuid.NewString()[:8]
@@ -385,7 +385,7 @@ func consumeCommand(t *testing.T, ctx context.Context, brokers []string, topic s
 		fetches := client.PollFetches(fetchCtx)
 		fetchCancel()
 
-		var metadata kafka.RecordMetadata
+		var metadata models.RecordMetadata
 		var payload []byte
 		var found bool
 
@@ -394,7 +394,7 @@ func consumeCommand(t *testing.T, ctx context.Context, brokers []string, topic s
 				return
 			}
 
-			var m kafka.RecordMetadata
+			var m models.RecordMetadata
 			for _, h := range rec.Headers {
 				if h.Key == "metadata" {
 					if err := sonic.Unmarshal(h.Value, &m); err != nil {
@@ -430,7 +430,7 @@ func publishReply(t *testing.T, ctx context.Context, brokers []string, topic str
 	replyPayload, err := sonic.Marshal(reply)
 	require.NoError(t, err)
 
-	metadata := kafka.RecordMetadata{
+	metadata := models.RecordMetadata{
 		EventType: eventType,
 		EventID:   uuid.New(),
 		SagaID:    sagaID,
@@ -438,7 +438,7 @@ func publishReply(t *testing.T, ctx context.Context, brokers []string, topic str
 		Timestamp: time.Now().Unix(),
 	}
 
-	metadataBytes, err := metadata.MarshalBinary()
+	metadataBytes, err := sonic.Marshal(metadata)
 	require.NoError(t, err)
 
 	rec := &kgo.Record{
@@ -507,7 +507,7 @@ func TestSagaHappyPath(t *testing.T) {
 
 	// Step 2: Orchestrator should publish ProcessPayment command
 	meta, _ = consumeCommand(t, ctx, kafkaBroker, "payment.commands", order.ID, models.EventProcessPayment)
-	publishReply(t, ctx, kafkaBroker, "payment.replies", meta.SagaID, order.ID, models.EventPaymentProcessed, models.PaymentReply{Success: true, PaymentID: uuid.NewString(), Message: "paid"})
+	publishReply(t, ctx, kafkaBroker, "payment.replies", meta.SagaID, order.ID, models.EventPaymentSucceeded, models.PaymentReply{Success: true, PaymentIntentID: uuid.NewString(), Message: "paid"})
 
 	// Step 3: Orchestrator should publish SendNotification command
 	meta, _ = consumeCommand(t, ctx, kafkaBroker, "notification.commands", order.ID, models.EventSendNotification)
@@ -592,7 +592,7 @@ func TestSagaFailAtNotification_FullCompensationChain(t *testing.T) {
 
 	// Step 2: ProcessPayment → success
 	meta, _ = consumeCommand(t, ctx, kafkaBroker, "payment.commands", order.ID, models.EventProcessPayment)
-	publishReply(t, ctx, kafkaBroker, "payment.replies", meta.SagaID, order.ID, models.EventPaymentProcessed, models.PaymentReply{Success: true, PaymentID: uuid.NewString(), Message: "paid"})
+	publishReply(t, ctx, kafkaBroker, "payment.replies", meta.SagaID, order.ID, models.EventPaymentSucceeded, models.PaymentReply{Success: true, PaymentIntentID: uuid.NewString(), Message: "paid"})
 
 	// Step 3: SendNotification → failure
 	meta, _ = consumeCommand(t, ctx, kafkaBroker, "notification.commands", order.ID, models.EventSendNotification)
@@ -600,7 +600,7 @@ func TestSagaFailAtNotification_FullCompensationChain(t *testing.T) {
 
 	// Compensation step 1: RefundPayment
 	meta, _ = consumeCommand(t, ctx, kafkaBroker, "payment.commands", order.ID, models.EventRefundPayment)
-	publishReply(t, ctx, kafkaBroker, "payment.replies", meta.SagaID, order.ID, models.EventPaymentProcessed, models.PaymentReply{Success: true, Message: "refunded"})
+	publishReply(t, ctx, kafkaBroker, "payment.replies", meta.SagaID, order.ID, models.EventPaymentSucceeded, models.PaymentReply{Success: true, Message: "refunded"})
 
 	// Compensation step 2: ReleaseInventory
 	meta, _ = consumeCommand(t, ctx, kafkaBroker, "inventory.commands", order.ID, models.EventReleaseInventory)
@@ -630,7 +630,7 @@ func TestSagaDuplicateOrderDetection(t *testing.T) {
 	publishReply(t, ctx, kafkaBroker, "inventory.replies", meta.SagaID, order.ID, models.EventInventoryReserved, models.InventoryReply{Success: true})
 
 	meta, _ = consumeCommand(t, ctx, kafkaBroker, "payment.commands", order.ID, models.EventProcessPayment)
-	publishReply(t, ctx, kafkaBroker, "payment.replies", meta.SagaID, order.ID, models.EventPaymentProcessed, models.PaymentReply{Success: true, PaymentID: uuid.NewString()})
+	publishReply(t, ctx, kafkaBroker, "payment.replies", meta.SagaID, order.ID, models.EventPaymentSucceeded, models.PaymentReply{Success: true, PaymentIntentID: uuid.NewString()})
 
 	meta, _ = consumeCommand(t, ctx, kafkaBroker, "notification.commands", order.ID, models.EventSendNotification)
 	publishReply(t, ctx, kafkaBroker, "notification.replies", meta.SagaID, order.ID, models.EventNotificationSent, models.NotificationReply{Success: true})
