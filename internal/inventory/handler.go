@@ -71,7 +71,7 @@ func (h *Handler) handleReleaseInventory(ctx context.Context, orderID uuid.UUID,
 	return h.service.ReleaseInventory(ctx, orderID, cmd)
 }
 
-func (h *Handler) publishReply(ctx context.Context, metadata *kafka.RecordMetadata, reply *models.InventoryReply) error {
+func (h *Handler) publishReply(ctx context.Context, metadata *models.RecordMetadata, reply *models.InventoryReply) error {
 	var replyEvent models.EventType
 
 	if reply.Success {
@@ -90,5 +90,10 @@ func (h *Handler) publishReply(ctx context.Context, metadata *kafka.RecordMetada
 		}
 	}
 
-	return kafka.PublishReply(ctx, h.producer, h.config.Topics.Replies.Inventory, metadata, replyEvent, reply)
+	event, err := models.NewEvent(replyEvent, metadata, reply)
+	if err != nil {
+		return err
+	}
+
+	return kafka.PublishReply(ctx, h.producer, h.config.Topics.Replies.Inventory, event)
 }
