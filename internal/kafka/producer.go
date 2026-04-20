@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/bytedance/sonic"
-	"github.com/google/uuid"
 	"github.com/mateusmlo/altimit-ecomm/internal/config"
 	"github.com/mateusmlo/altimit-ecomm/internal/errs"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
@@ -17,18 +15,6 @@ import (
 type Producer struct {
 	Client *kgo.Client
 	cfg    *config.Config
-}
-
-type RecordMetadata struct {
-	EventType models.EventType `json:"event_type"`
-	EventID   uuid.UUID        `json:"event_id"`
-	SagaID    uuid.UUID        `json:"saga_id"`
-	OrderID   uuid.UUID        `json:"order_id"`
-	Timestamp int64            `json:"timestamp"`
-}
-
-func (rm *RecordMetadata) MarshalBinary() ([]byte, error) {
-	return sonic.Marshal(rm)
 }
 
 func NewProducer(cfg *config.Config) (*Producer, error) {
@@ -49,7 +35,7 @@ func NewProducer(cfg *config.Config) (*Producer, error) {
 }
 
 // ExtractMetadata parses the "metadata" header from a Kafka record.
-func ExtractMetadata(headers []kgo.RecordHeader) (*RecordMetadata, error) {
+func ExtractMetadata(headers []kgo.RecordHeader) (*models.RecordMetadata, error) {
 	var metadataBytes []byte
 	for _, h := range headers {
 		if h.Key == "metadata" {
@@ -60,7 +46,7 @@ func ExtractMetadata(headers []kgo.RecordHeader) (*RecordMetadata, error) {
 	if metadataBytes == nil {
 		return nil, errs.ErrMissingMetadata
 	}
-	var metadata RecordMetadata
+	var metadata models.RecordMetadata
 	if err := sonic.Unmarshal(metadataBytes, &metadata); err != nil {
 		return nil, fmt.Errorf("%w: %w", errs.ErrMalformedPayload, err)
 	}
@@ -68,44 +54,26 @@ func ExtractMetadata(headers []kgo.RecordHeader) (*RecordMetadata, error) {
 }
 
 // PublishReply marshals reply and publishes it as a saga event to the given topic.
-func PublishReply(ctx context.Context, producer EventPublisher, topic string, metadata *RecordMetadata, replyEvent models.EventType, reply any) error {
-	replyPayload, err := sonic.Marshal(reply)
-	if err != nil {
-		return err
-	}
-	ev := models.Event{
-		Event:     replyEvent,
-		EventID:   uuid.New(),
-		SagaID:    metadata.SagaID,
-		OrderID:   metadata.OrderID,
-		Timestamp: time.Now().Unix(),
-		Payload:   replyPayload,
-	}
-	return producer.PublishEvent(ctx, topic, []byte(ev.OrderID.String()), ev)
+func PublishReply(ctx context.Context, producer EventPublisher, topic string, event models.Event) error {
+	return producer.PublishEvent(ctx, topic, event)
 }
 
-func (p *Producer) PublishEvent(ctx context.Context, topic string, key []byte, ev models.Event) error {
+func (p *Producer) PublishEvent(ctx context.Context, topic string, ev models.Event) error {
 	msgPayload, err := ev.Payload.MarshalJSON()
 	if err != nil {
 		return err
 	}
 
-	rm := RecordMetadata{
-		EventType: ev.Event,
-		EventID:   ev.EventID,
-		SagaID:    ev.SagaID,
-		OrderID:   ev.OrderID,
-		Timestamp: ev.Timestamp,
-	}
+	rm := models.NewRecordMetadata(ev)
 
-	rmBytes, err := rm.MarshalBinary()
+	rmBytes, err := sonic.Marshal(rm)
 	if err != nil {
 		return err
 	}
 
 	msg := &kgo.Record{
 		Topic: topic,
-		Key:   key,
+		Key:   []byte(ev.OrderID.String()),
 		Value: msgPayload,
 		Headers: []kgo.RecordHeader{
 			{
