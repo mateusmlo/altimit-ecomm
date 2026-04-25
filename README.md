@@ -5,7 +5,7 @@
 A backend for an e-commerce platform built around the **Saga orchestration pattern**. Each domain concern (inventory, payment, notification) lives in its own service and communicates exclusively through Kafka events — no direct service-to-service calls. A central **saga orchestrator** coordinates the distributed transaction and drives compensation when a step fails.
 
 ## Disclaimer
-This project served as a means for me to study both Apache Kafka and SAGA pattern implementation, and it's developed using Claude Code purely as a mentor, meaning I use it mainly to explain complex logic, code reviewing and also helping me tackle the project step by step (it's a BIG one). While Claude Code is EXTREMELY good at doing things, I do not rely solely on its ideas, which at times may be questionable or subpar; this is where my experience ~~(and Reddit)~~ comes into play. What I usually ask Claude Code to write: tests, READMEs, scripts, commits, and boilerplate. You know, the boring stuff (rule of thumb: do not blindly trust generated code). It's been very challenging and a lot of fun building this project.
+This project serves as a means for me to study both Apache Kafka, golang and SAGA pattern implementation, and it's developed using Claude Code purely as a mentor, meaning I use it mainly to explain complex logic, code reviewing and also helping me tackle the project step by step (it's a BIG one). While Claude Code is EXTREMELY good at doing things, I do not rely solely on its ideas, which at times may be questionable or subpar; this is where my experience ~~(and Reddit)~~ comes into play. What I usually ask Claude Code to write: tests, READMEs, scripts, commits, and boilerplate. You know, the boring stuff (which I thorougly review). It's been very challenging and a lot of fun building this project.
 
 ---
 
@@ -17,6 +17,7 @@ This project served as a means for me to study both Apache Kafka and SAGA patter
 | Messaging | Apache Kafka (franz-go client) |
 | Database | PostgreSQL 17 + GORM |
 | Cache | Redis 7 |
+| Payments | Stripe (stripe-go v85) |
 | JSON | bytedance/sonic |
 | Config | Viper (env vars / `.env` file) |
 | Testing | testify + Testcontainers |
@@ -38,9 +39,11 @@ This project served as a means for me to study both Apache Kafka and SAGA patter
          ▼                     ▼                        ▼
   ┌─────────────┐      ┌──────────────┐       ┌──────────────────┐
   │  Inventory  │      │   Payment    │       │  Notification    │
-  │   Service   │      │   Service    │       │    Service       │
-  └──────┬──────┘      └──────────────┘       └──────────────────┘
-         │ GORM
+  │   Service   │      │   Service   │       │    Service       │
+  └──────┬──────┘      └──────┬───────┘       └──────────────────┘
+         │ GORM                │ GORM + Stripe
+         │                     ▼
+         │               PostgreSQL
          ▼
     PostgreSQL
          ▲
@@ -85,6 +88,8 @@ COMPLETED
 
 **Record metadata in Kafka headers** — event type, saga ID, order ID, and timestamp are serialised into a `metadata` header on every record, keeping the message body as a plain command/reply payload.
 
+**Stripe errors are not infrastructure errors** — the payment service treats card declines, failed refunds, and Stripe API responses as business outcomes, not crashes. These produce a `PAYMENT_FAILED` / `REFUND_FAILED` reply so the saga can compensate gracefully. Only true infrastructure failures (DB errors, serialisation errors) bubble up and stop the consumer.
+
 ---
 
 ## Project layout
@@ -93,7 +98,7 @@ COMPLETED
 cmd/
   inventory/        # Inventory service entrypoint + integration tests
   orchestrator/     # Saga orchestrator entrypoint + integration tests
-  payment/          # (scaffolded)
+  payment/          # Payment service entrypoint + integration tests
   notification/     # (scaffolded)
 internal/
   config/           # Viper-based config loader (see internal/config/README.md)
@@ -103,13 +108,13 @@ internal/
   kafka/            # Generic Kafka consumer, producer, and EventPublisher interface
   models/           # GORM models, event/command types, and saga workflow definition
   orchestrator/     # Saga orchestrator logic and Kafka handler
+  payment/          # Payment service logic and Kafka handler
   repository/       # Data-access layer (one file per aggregate)
+  stripe/           # Stripe client, StripeService interface, and stripetest fake
 scripts/
   migrate.sql       # Idempotent DB migrations for existing containers
   seed.sql          # Test product data
   test-saga/        # Live end-to-end saga test (Go program)
-  test-reserve.sh   # Ad-hoc ReserveInventory command
-  test-release.sh   # Ad-hoc ReleaseInventory command
 ```
 
 ---
@@ -120,6 +125,7 @@ scripts/
 
 - Go 1.24+
 - Docker + Docker Compose
+- A Stripe account (test-mode secret key)
 
 ### 1. First-time setup
 
@@ -127,7 +133,7 @@ scripts/
 make setup        # downloads Go deps, copies .env.example → .env
 ```
 
-Edit `.env` if you need to change any defaults. See [`internal/config/README.md`](internal/config/README.md) for the full list of variables.
+Edit `.env` and set `STRIPE_SECRET_KEY` to your Stripe test-mode secret key. See [`internal/config/README.md`](internal/config/README.md) for the full list of variables.
 
 ### 2. Start infrastructure
 
@@ -151,13 +157,16 @@ make db-migrate
 
 ### 4. Run the services
 
-Open two terminals:
+Open three terminals:
 
 ```bash
 # terminal 1
 make run-inventory
 
 # terminal 2
+make run-payment
+
+# terminal 3
 make run-orchestrator
 ```
 
@@ -167,14 +176,7 @@ make run-orchestrator
 make test-saga
 ```
 
-This creates a real order, publishes it to Kafka, and acts as a mock payment and notification service — consuming commands and replying with success. The inventory service must be running to handle `inventory.commands`.
-
-### Ad-hoc commands
-
-```bash
-make test-reserve   # publishes a ReserveInventory command directly
-make test-release   # publishes a ReleaseInventory command directly
-```
+This creates a real order and publishes it to Kafka. The inventory service handles stock reservation, the payment service charges via Stripe (test mode), and the notification service is stubbed by the test script. All three services must be running.
 
 ### Shortcuts
 
@@ -198,13 +200,13 @@ No external services required.
 
 ### Integration tests
 
-Integration tests use **Testcontainers** to spin up real PostgreSQL and Kafka instances automatically. Docker must be running.
+Integration tests use **Testcontainers** to spin up real PostgreSQL and Kafka instances automatically. Docker must be running. The payment service integration tests use a configurable `FakeService` Stripe double — no real Stripe API calls are made.
 
 ```bash
 make test-integration
 ```
 
-This runs both the inventory and orchestrator integration suites. The first run will pull the container images.
+This runs the inventory, payment, and orchestrator integration suites. The first run will pull the container images.
 
 ---
 
