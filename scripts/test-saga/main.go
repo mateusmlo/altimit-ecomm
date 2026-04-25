@@ -284,6 +284,13 @@ func printResult(db *gorm.DB, orderID uuid.UUID) {
 		fmt.Printf("  Reservation: product=%s qty=%d status=%s\n", r.ProductID, r.Quantity, r.Status)
 	}
 
+	var payment models.Payment
+	if err := db.Where("order_id = ?", orderID).First(&payment).Error; err != nil {
+		fmt.Printf("  Payment: not found (%v)\n", err)
+	} else {
+		fmt.Printf("  Payment: %s  status=%s\n", payment.PaymentIntentID, payment.Status)
+	}
+
 	switch order.Status {
 	case models.OrderCompleted:
 		fmt.Println("\n  PASS")
