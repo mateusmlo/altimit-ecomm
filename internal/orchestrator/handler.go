@@ -102,6 +102,10 @@ func (h *Handler) handleReply(ctx context.Context, rec *kgo.Record) error {
 
 		return h.orchestrator.ProcessStepFailure(ctx, metadata.SagaID)
 
+	case models.SagaCompleted:
+		fmt.Printf("SAGA %s completed successfully\n", saga.SagaID)
+		return nil
+
 	default:
 		return fmt.Errorf("received reply for SAGA in unexpected status %s", saga.Status)
 	}
