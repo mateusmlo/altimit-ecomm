@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS payments (
 );
 
 -- SAGA state table (tracks distributed transaction state)
-CREATE TABLE IF NOT EXISTS saga_state (
+CREATE TABLE IF NOT EXISTS saga_states (
     saga_id UUID PRIMARY KEY,
     order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
     current_step VARCHAR(50) NOT NULL,
@@ -124,8 +124,8 @@ CREATE INDEX IF NOT EXISTS idx_inventory_reservations_status ON inventory_reserv
 CREATE INDEX IF NOT EXISTS idx_payments_order_id ON payments(order_id);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
 
-CREATE INDEX IF NOT EXISTS idx_saga_state_order_id ON saga_state(order_id);
-CREATE INDEX IF NOT EXISTS idx_saga_state_status ON saga_state(status);
+CREATE INDEX IF NOT EXISTS idx_saga_state_order_id ON saga_states(order_id);
+CREATE INDEX IF NOT EXISTS idx_saga_state_status ON saga_states(status);
 
 CREATE INDEX IF NOT EXISTS idx_idempotency_keys_created_at ON idempotency_keys(created_at);
 
