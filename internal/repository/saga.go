@@ -67,7 +67,7 @@ func (r *sagaRepository) UpdateStatus(ctx context.Context, sagaID uuid.UUID, sta
 	return r.db.WithContext(ctx).
 		Model(&models.SagaState{}).
 		Where("saga_id = ?", sagaID).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"status":     status,
 			"updated_at": time.Now(),
 		}).Error
@@ -77,7 +77,7 @@ func (r *sagaRepository) UpdateStep(ctx context.Context, sagaID uuid.UUID, step 
 	return r.db.WithContext(ctx).
 		Model(&models.SagaState{}).
 		Where("saga_id = ?", sagaID).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"current_step": step,
 			"updated_at":   time.Now(),
 		}).Error
@@ -87,7 +87,7 @@ func (r *sagaRepository) UpdateStepAndStatus(ctx context.Context, sagaID uuid.UU
 	return r.db.WithContext(ctx).
 		Model(&models.SagaState{}).
 		Where("saga_id = ?", sagaID).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"current_step": step,
 			"status":       status,
 			"updated_at":   time.Now(),
