@@ -3,7 +3,6 @@ package inventory
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
@@ -29,7 +28,7 @@ func NewHandler(service *InventoryService, producer *kafka.Producer, config *con
 }
 
 func (h *Handler) HandleCommand(ctx context.Context, rec *kgo.Record) error {
-	metadata, err := h.extractMedatada(rec.Headers)
+	metadata, err := kafka.ExtractMetadata(rec.Headers)
 	if err != nil {
 		return err
 	}
@@ -54,31 +53,8 @@ func (h *Handler) HandleCommand(ctx context.Context, rec *kgo.Record) error {
 	return h.publishReply(ctx, metadata, reply)
 }
 
-func (h *Handler) extractMedatada(headers []kgo.RecordHeader) (*kafka.RecordMetadata, error) {
-	var metadataBytes []byte
-	var metadata kafka.RecordMetadata
-
-	for _, h := range headers {
-		if h.Key == "metadata" {
-			metadataBytes = append(metadataBytes, h.Value...)
-			break
-		}
-	}
-
-	if metadataBytes == nil {
-		return nil, errs.ErrMissingMetadata
-	}
-
-	if err := sonic.Unmarshal(metadataBytes, &metadata); err != nil {
-		return nil, fmt.Errorf("%w: %w", errs.ErrMalformedPayload, err)
-	}
-
-	return &metadata, nil
-}
-
 func (h *Handler) handleReserveInventory(ctx context.Context, orderID uuid.UUID, payload []byte) (*models.InventoryReply, error) {
 	var cmd models.ReserveInventoryCommand
-
 	if err := sonic.Unmarshal(payload, &cmd); err != nil {
 		return nil, fmt.Errorf("%w: %w", errs.ErrMalformedPayload, err)
 	}
@@ -88,7 +64,6 @@ func (h *Handler) handleReserveInventory(ctx context.Context, orderID uuid.UUID,
 
 func (h *Handler) handleReleaseInventory(ctx context.Context, orderID uuid.UUID, payload []byte) (*models.InventoryReply, error) {
 	var cmd models.ReleaseInventoryCommand
-
 	if err := sonic.Unmarshal(payload, &cmd); err != nil {
 		return nil, fmt.Errorf("%w: %w", errs.ErrMalformedPayload, err)
 	}
@@ -96,7 +71,7 @@ func (h *Handler) handleReleaseInventory(ctx context.Context, orderID uuid.UUID,
 	return h.service.ReleaseInventory(ctx, orderID, cmd)
 }
 
-func (h *Handler) publishReply(ctx context.Context, metadata *kafka.RecordMetadata, reply *models.InventoryReply) error {
+func (h *Handler) publishReply(ctx context.Context, metadata *models.RecordMetadata, reply *models.InventoryReply) error {
 	var replyEvent models.EventType
 
 	if reply.Success {
@@ -115,19 +90,10 @@ func (h *Handler) publishReply(ctx context.Context, metadata *kafka.RecordMetada
 		}
 	}
 
-	replyPayload, err := sonic.Marshal(reply)
+	event, err := models.NewEvent(replyEvent, metadata, reply)
 	if err != nil {
 		return err
 	}
 
-	ev := models.Event{
-		Event:     replyEvent,
-		EventID:   uuid.New(),
-		SagaID:    metadata.SagaID,
-		OrderID:   metadata.OrderID,
-		Payload:   replyPayload,
-		Timestamp: time.Now().Unix(),
-	}
-
-	return h.producer.PublishEvent(ctx, h.config.Topics.Replies.Inventory, []byte(ev.OrderID.String()), ev)
+	return kafka.PublishReply(ctx, h.producer, h.config.Topics.Replies.Inventory, event)
 }

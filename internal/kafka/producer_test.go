@@ -1,23 +1,32 @@
 package kafka
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 
+	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
+	"github.com/mateusmlo/altimit-ecomm/internal/errs"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-func TestRecordMetadata_MarshalBinary(t *testing.T) {
+func makeMetadataHeader(t *testing.T, m models.RecordMetadata) kgo.RecordHeader {
+	t.Helper()
+	b, err := sonic.Marshal(m)
+	require.NoError(t, err)
+	return kgo.RecordHeader{Key: "metadata", Value: b}
+}
+
+func TestExtractMetadata_Success(t *testing.T) {
 	eventID := uuid.New()
 	sagaID := uuid.New()
 	orderID := uuid.New()
 	now := time.Now().Unix()
 
-	rm := RecordMetadata{
+	rm := models.RecordMetadata{
 		EventType: models.EventReserveInventory,
 		EventID:   eventID,
 		SagaID:    sagaID,
@@ -25,29 +34,24 @@ func TestRecordMetadata_MarshalBinary(t *testing.T) {
 		Timestamp: now,
 	}
 
-	b, err := rm.MarshalBinary()
+	header := makeMetadataHeader(t, rm)
+	got, err := ExtractMetadata([]kgo.RecordHeader{header})
 	require.NoError(t, err)
-	assert.NotEmpty(t, b)
 
-	// Unmarshal back and verify round-trip
-	var decoded RecordMetadata
-	require.NoError(t, json.Unmarshal(b, &decoded))
-
-	assert.Equal(t, models.EventReserveInventory, decoded.EventType)
-	assert.Equal(t, eventID, decoded.EventID)
-	assert.Equal(t, sagaID, decoded.SagaID)
-	assert.Equal(t, orderID, decoded.OrderID)
-	assert.Equal(t, now, decoded.Timestamp)
+	assert.Equal(t, models.EventReserveInventory, got.EventType)
+	assert.Equal(t, eventID, got.EventID)
+	assert.Equal(t, sagaID, got.SagaID)
+	assert.Equal(t, orderID, got.OrderID)
+	assert.Equal(t, now, got.Timestamp)
 }
 
-func TestRecordMetadata_MarshalBinary_ZeroValue(t *testing.T) {
-	rm := RecordMetadata{}
+func TestExtractMetadata_MissingHeader(t *testing.T) {
+	_, err := ExtractMetadata([]kgo.RecordHeader{})
+	assert.ErrorIs(t, err, errs.ErrMissingMetadata)
+}
 
-	b, err := rm.MarshalBinary()
-	require.NoError(t, err)
-	assert.NotEmpty(t, b)
-
-	var decoded RecordMetadata
-	require.NoError(t, json.Unmarshal(b, &decoded))
-	assert.Equal(t, rm, decoded)
+func TestExtractMetadata_MalformedJSON(t *testing.T) {
+	headers := []kgo.RecordHeader{{Key: "metadata", Value: []byte("not-json")}}
+	_, err := ExtractMetadata(headers)
+	assert.ErrorIs(t, err, errs.ErrMalformedPayload)
 }

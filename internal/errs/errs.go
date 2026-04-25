@@ -17,4 +17,8 @@ var (
 
 	// Orders
 	ErrOrderInProgress = errors.New("order already in progress")
+	ErrOrderNotFound   = errors.New("order not found")
+
+	// Saga compensation
+	ErrCompensationFailed = errors.New("compensation permanently failed")
 )

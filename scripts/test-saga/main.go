@@ -20,7 +20,6 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
 	"github.com/mateusmlo/altimit-ecomm/internal/config"
-	"github.com/mateusmlo/altimit-ecomm/internal/kafka"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"github.com/twmb/franz-go/pkg/kgo"
 	gormPG "gorm.io/driver/postgres"
@@ -120,13 +119,13 @@ func main() {
 			switch {
 			case rec.Topic == cfg.Topics.Commands.Payment && meta.EventType == models.EventProcessPayment:
 				fmt.Printf("[payment]      << received PROCESS_PAYMENT command\n")
-				sendReply(ctx, replier, cfg.Topics.Replies.Payment, meta, models.EventPaymentProcessed,
-					&models.PaymentReply{Success: true, PaymentID: uuid.NewString(), Message: "charged"})
+				sendReply(ctx, replier, cfg.Topics.Replies.Payment, meta, models.EventPaymentSucceeded,
+					&models.PaymentReply{Success: true, PaymentIntentID: uuid.NewString(), Message: "charged"})
 				fmt.Printf("[payment]      >> replied PAYMENT_PROCESSED\n")
 
 			case rec.Topic == cfg.Topics.Commands.Payment && meta.EventType == models.EventRefundPayment:
 				fmt.Printf("[payment]      << received REFUND_PAYMENT command\n")
-				sendReply(ctx, replier, cfg.Topics.Replies.Payment, meta, models.EventPaymentProcessed,
+				sendReply(ctx, replier, cfg.Topics.Replies.Payment, meta, models.EventPaymentSucceeded,
 					&models.PaymentReply{Success: true, Message: "refunded"})
 				fmt.Printf("[payment]      >> replied PAYMENT_PROCESSED (refund)\n")
 
@@ -214,10 +213,10 @@ func publishOrder(ctx context.Context, cfg *config.Config, order *models.Order) 
 	}
 }
 
-func extractMetadata(rec *kgo.Record) *kafka.RecordMetadata {
+func extractMetadata(rec *kgo.Record) *models.RecordMetadata {
 	for _, h := range rec.Headers {
 		if h.Key == "metadata" {
-			var m kafka.RecordMetadata
+			var m models.RecordMetadata
 			if err := sonic.Unmarshal(h.Value, &m); err != nil {
 				return nil
 			}
@@ -227,13 +226,13 @@ func extractMetadata(rec *kgo.Record) *kafka.RecordMetadata {
 	return nil
 }
 
-func sendReply(ctx context.Context, client *kgo.Client, topic string, meta *kafka.RecordMetadata, eventType models.EventType, reply any) {
+func sendReply(ctx context.Context, client *kgo.Client, topic string, meta *models.RecordMetadata, eventType models.EventType, reply any) {
 	payload, err := sonic.Marshal(reply)
 	if err != nil {
 		log.Fatalf("Failed to marshal reply: %v", err)
 	}
 
-	replyMeta := kafka.RecordMetadata{
+	replyMeta := models.RecordMetadata{
 		EventType: eventType,
 		EventID:   uuid.New(),
 		SagaID:    meta.SagaID,
@@ -241,7 +240,7 @@ func sendReply(ctx context.Context, client *kgo.Client, topic string, meta *kafk
 		Timestamp: time.Now().Unix(),
 	}
 
-	metaBytes, err := replyMeta.MarshalBinary()
+	metaBytes, err := sonic.Marshal(replyMeta)
 	if err != nil {
 		log.Fatalf("Failed to marshal metadata: %v", err)
 	}
@@ -283,6 +282,13 @@ func printResult(db *gorm.DB, orderID uuid.UUID) {
 	db.Where("order_id = ?", orderID).Find(&reservations)
 	for _, r := range reservations {
 		fmt.Printf("  Reservation: product=%s qty=%d status=%s\n", r.ProductID, r.Quantity, r.Status)
+	}
+
+	var payment models.Payment
+	if err := db.Where("order_id = ?", orderID).First(&payment).Error; err != nil {
+		fmt.Printf("  Payment: not found (%v)\n", err)
+	} else {
+		fmt.Printf("  Payment: %s  status=%s\n", payment.PaymentIntentID, payment.Status)
 	}
 
 	switch order.Status {

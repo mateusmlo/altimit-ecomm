@@ -7,6 +7,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
+	github.com/stripe/stripe-go/v85 v85.0.0
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/testcontainers/testcontainers-go/modules/kafka v0.40.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.40.0

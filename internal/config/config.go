@@ -17,6 +17,7 @@ type Config struct {
 	Topics         TopicsConfig
 	ConsumerGroups ConsumerGroupsConfig
 	Region         string
+	Stripe         StripeConfig
 }
 
 // KafkaConfig holds Kafka-related configuration
@@ -74,6 +75,11 @@ type ConsumerGroupsConfig struct {
 	InventoryService    string
 	PaymentService      string
 	NotificationService string
+}
+
+// Stripe configs
+type StripeConfig struct {
+	SecretKey string
 }
 
 // Load reads configuration from environment variables using Viper
@@ -138,6 +144,9 @@ func Load() (*Config, error) {
 			NotificationService: v.GetString("NOTIFICATION_SERVICE_GROUP"),
 		},
 		Region: v.GetString("REGION"),
+		Stripe: StripeConfig{
+			SecretKey: v.GetString("STRIPE_SECRET_KEY"),
+		},
 	}
 
 	// Validate the configuration
@@ -235,6 +244,10 @@ func (c *Config) Validate() error {
 	// Validate region
 	if c.Region == "" {
 		return fmt.Errorf("REGION is required")
+	}
+
+	if c.Stripe.SecretKey == "" {
+		return fmt.Errorf("STRIPE_SECRET_KEY is required")
 	}
 
 	return nil

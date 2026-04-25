@@ -9,5 +9,5 @@ import (
 // EventPublisher abstracts event publishing for testability.
 // *Producer implements this interface.
 type EventPublisher interface {
-	PublishEvent(ctx context.Context, topic string, key []byte, ev models.Event) error
+	PublishEvent(ctx context.Context, topic string, ev models.Event) error
 }

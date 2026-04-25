@@ -27,7 +27,9 @@ import (
 	"github.com/mateusmlo/altimit-ecomm/internal/kafka"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"github.com/mateusmlo/altimit-ecomm/internal/orchestrator"
+	"github.com/mateusmlo/altimit-ecomm/internal/payment"
 	"github.com/mateusmlo/altimit-ecomm/internal/repository"
+	"github.com/mateusmlo/altimit-ecomm/internal/stripe/stripetest"
 )
 
 var (
@@ -326,6 +328,73 @@ func startOrchestrator(ctx context.Context, t *testing.T, cfg *config.Config, db
 	return cancel
 }
 
+// startPaymentService runs a real payment.Handler against payment.commands,
+// wired with a fake Stripe service. Each call uses a unique consumer group and AtEnd offset
+// reset so stale records from prior tests don't drive the handler against
+// truncated orders.
+func startPaymentService(ctx context.Context, t *testing.T, cfg *config.Config, db *gorm.DB, fake *stripetest.FakeService) context.CancelFunc {
+	t.Helper()
+
+	svcCtx, cancel := context.WithCancel(ctx)
+
+	producer, err := kafka.NewProducer(cfg)
+	require.NoError(t, err)
+
+	orderRepo := repository.NewOrderRepository(db)
+	paymentRepo := repository.NewPaymentRepository(db)
+
+	service := payment.NewPaymentService(fake, paymentRepo)
+	handler := payment.NewHandler(service, producer, orderRepo, cfg)
+
+	groupID := "payment-svc-test-" + uuid.NewString()[:8]
+	client, err := kgo.NewClient(
+		kgo.SeedBrokers(cfg.Kafka.Brokers...),
+		kgo.ConsumerGroup(groupID),
+		kgo.ConsumeTopics(cfg.Topics.Commands.Payment),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()),
+		kgo.DisableAutoCommit(),
+	)
+	require.NoError(t, err)
+
+	go func() {
+		defer client.Close()
+		defer producer.Client.Close()
+
+		for {
+			select {
+			case <-svcCtx.Done():
+				return
+			default:
+			}
+
+			fetches := client.PollFetches(svcCtx)
+			if fetches.IsClientClosed() {
+				return
+			}
+
+			var processErr error
+			fetches.EachRecord(func(rec *kgo.Record) {
+				if processErr != nil {
+					return
+				}
+				if err := handler.HandleCommand(svcCtx, rec); err != nil {
+					log.Printf("payment handler error: %v", err)
+					processErr = err
+				}
+			})
+
+			if processErr == nil {
+				client.CommitUncommittedOffsets(svcCtx)
+			}
+		}
+	}()
+
+	// Allow consumer to connect and subscribe before tests publish.
+	time.Sleep(500 * time.Millisecond)
+
+	return cancel
+}
+
 func publishOrderCommand(t *testing.T, ctx context.Context, brokers []string, order *models.Order) {
 	t.Helper()
 
@@ -348,7 +417,7 @@ func publishOrderCommand(t *testing.T, ctx context.Context, brokers []string, or
 
 // consumeCommand consumes from a command topic, filtering by orderID and optionally by event type.
 // Returns the metadata (containing SagaID needed for reply headers) and the raw payload.
-func consumeCommand(t *testing.T, ctx context.Context, brokers []string, topic string, orderID uuid.UUID, expectedTypes ...models.EventType) (kafka.RecordMetadata, []byte) {
+func consumeCommand(t *testing.T, ctx context.Context, brokers []string, topic string, orderID uuid.UUID, expectedTypes ...models.EventType) (models.RecordMetadata, []byte) {
 	t.Helper()
 
 	groupID := "test-cmd-consumer-" + uuid.NewString()[:8]
@@ -385,7 +454,7 @@ func consumeCommand(t *testing.T, ctx context.Context, brokers []string, topic s
 		fetches := client.PollFetches(fetchCtx)
 		fetchCancel()
 
-		var metadata kafka.RecordMetadata
+		var metadata models.RecordMetadata
 		var payload []byte
 		var found bool
 
@@ -394,7 +463,7 @@ func consumeCommand(t *testing.T, ctx context.Context, brokers []string, topic s
 				return
 			}
 
-			var m kafka.RecordMetadata
+			var m models.RecordMetadata
 			for _, h := range rec.Headers {
 				if h.Key == "metadata" {
 					if err := sonic.Unmarshal(h.Value, &m); err != nil {
@@ -430,7 +499,7 @@ func publishReply(t *testing.T, ctx context.Context, brokers []string, topic str
 	replyPayload, err := sonic.Marshal(reply)
 	require.NoError(t, err)
 
-	metadata := kafka.RecordMetadata{
+	metadata := models.RecordMetadata{
 		EventType: eventType,
 		EventID:   uuid.New(),
 		SagaID:    sagaID,
@@ -438,7 +507,7 @@ func publishReply(t *testing.T, ctx context.Context, brokers []string, topic str
 		Timestamp: time.Now().Unix(),
 	}
 
-	metadataBytes, err := metadata.MarshalBinary()
+	metadataBytes, err := sonic.Marshal(metadata)
 	require.NoError(t, err)
 
 	rec := &kgo.Record{
@@ -499,23 +568,31 @@ func TestSagaHappyPath(t *testing.T) {
 	cancel := startOrchestrator(ctx, t, testCfg, testDB)
 	defer cancel()
 
+	fake := stripetest.New()
+	paymentCancel := startPaymentService(ctx, t, testCfg, testDB, fake)
+	defer paymentCancel()
+
 	publishOrderCommand(t, ctx, kafkaBroker, order)
 
-	// Step 1: Orchestrator should publish ReserveInventory command
+	// Step 1: Orchestrator publishes ReserveInventory — stub the reply
 	meta, _ := consumeCommand(t, ctx, kafkaBroker, "inventory.commands", order.ID, models.EventReserveInventory)
 	publishReply(t, ctx, kafkaBroker, "inventory.replies", meta.SagaID, order.ID, models.EventInventoryReserved, models.InventoryReply{Success: true, Message: "reserved"})
 
-	// Step 2: Orchestrator should publish ProcessPayment command
-	meta, _ = consumeCommand(t, ctx, kafkaBroker, "payment.commands", order.ID, models.EventProcessPayment)
-	publishReply(t, ctx, kafkaBroker, "payment.replies", meta.SagaID, order.ID, models.EventPaymentProcessed, models.PaymentReply{Success: true, PaymentID: uuid.NewString(), Message: "paid"})
+	// Step 2: Real payment service handles ProcessPayment and publishes the reply
 
-	// Step 3: Orchestrator should publish SendNotification command
+	// Step 3: Orchestrator publishes SendNotification — stub the reply
 	meta, _ = consumeCommand(t, ctx, kafkaBroker, "notification.commands", order.ID, models.EventSendNotification)
 	publishReply(t, ctx, kafkaBroker, "notification.replies", meta.SagaID, order.ID, models.EventNotificationSent, models.NotificationReply{Success: true, Message: "sent"})
 
 	// Assert final state
 	waitForSagaStatus(t, testDB, order.ID, models.SagaCompleted, 15*time.Second)
 	assertOrderStatus(t, testDB, order.ID, models.OrderCompleted)
+
+	// Real payment service should have persisted a COMPLETED payment row
+	var payments []models.Payment
+	require.NoError(t, testDB.Where("order_id = ?", order.ID).Find(&payments).Error)
+	require.Len(t, payments, 1)
+	assert.Equal(t, models.PaymentCompleted, payments[0].Status)
 }
 
 func TestSagaFailAtFirstStep_NoCompensation(t *testing.T) {
@@ -529,6 +606,11 @@ func TestSagaFailAtFirstStep_NoCompensation(t *testing.T) {
 	ctx := context.Background()
 	cancel := startOrchestrator(ctx, t, testCfg, testDB)
 	defer cancel()
+
+	// Payment service is started but never invoked — fails at step 1.
+	fake := stripetest.New()
+	paymentCancel := startPaymentService(ctx, t, testCfg, testDB, fake)
+	defer paymentCancel()
 
 	publishOrderCommand(t, ctx, kafkaBroker, order)
 
@@ -553,15 +635,19 @@ func TestSagaFailAtPayment_CompensateInventory(t *testing.T) {
 	cancel := startOrchestrator(ctx, t, testCfg, testDB)
 	defer cancel()
 
+	// Configure Stripe to decline — real payment service will publish a failed reply.
+	fake := stripetest.New()
+	fake.SetProcessDeclined()
+	paymentCancel := startPaymentService(ctx, t, testCfg, testDB, fake)
+	defer paymentCancel()
+
 	publishOrderCommand(t, ctx, kafkaBroker, order)
 
 	// Step 1: ReserveInventory → success
 	meta, _ := consumeCommand(t, ctx, kafkaBroker, "inventory.commands", order.ID, models.EventReserveInventory)
 	publishReply(t, ctx, kafkaBroker, "inventory.replies", meta.SagaID, order.ID, models.EventInventoryReserved, models.InventoryReply{Success: true, Message: "reserved"})
 
-	// Step 2: ProcessPayment → failure
-	meta, _ = consumeCommand(t, ctx, kafkaBroker, "payment.commands", order.ID, models.EventProcessPayment)
-	publishReply(t, ctx, kafkaBroker, "payment.replies", meta.SagaID, order.ID, models.EventPaymentFailed, models.PaymentReply{Success: false, Message: "card declined"})
+	// Step 2: Real payment service processes ProcessPayment, publishes PaymentFailed
 
 	// Compensation: Orchestrator should publish ReleaseInventory
 	meta, _ = consumeCommand(t, ctx, kafkaBroker, "inventory.commands", order.ID, models.EventReleaseInventory)
@@ -570,6 +656,11 @@ func TestSagaFailAtPayment_CompensateInventory(t *testing.T) {
 	// Assert final state
 	waitForSagaStatus(t, testDB, order.ID, models.SagaCompensated, 15*time.Second)
 	assertOrderStatus(t, testDB, order.ID, models.OrderFailed)
+
+	// Declined payment should not have persisted a payment row
+	var count int64
+	require.NoError(t, testDB.Model(&models.Payment{}).Where("order_id = ?", order.ID).Count(&count).Error)
+	assert.Equal(t, int64(0), count)
 }
 
 func TestSagaFailAtNotification_FullCompensationChain(t *testing.T) {
@@ -584,31 +675,37 @@ func TestSagaFailAtNotification_FullCompensationChain(t *testing.T) {
 	cancel := startOrchestrator(ctx, t, testCfg, testDB)
 	defer cancel()
 
+	// Default: payment succeeds on ProcessPayment and RefundPayment.
+	fake := stripetest.New()
+	paymentCancel := startPaymentService(ctx, t, testCfg, testDB, fake)
+	defer paymentCancel()
+
 	publishOrderCommand(t, ctx, kafkaBroker, order)
 
 	// Step 1: ReserveInventory → success
 	meta, _ := consumeCommand(t, ctx, kafkaBroker, "inventory.commands", order.ID, models.EventReserveInventory)
 	publishReply(t, ctx, kafkaBroker, "inventory.replies", meta.SagaID, order.ID, models.EventInventoryReserved, models.InventoryReply{Success: true, Message: "reserved"})
 
-	// Step 2: ProcessPayment → success
-	meta, _ = consumeCommand(t, ctx, kafkaBroker, "payment.commands", order.ID, models.EventProcessPayment)
-	publishReply(t, ctx, kafkaBroker, "payment.replies", meta.SagaID, order.ID, models.EventPaymentProcessed, models.PaymentReply{Success: true, PaymentID: uuid.NewString(), Message: "paid"})
+	// Step 2: Real payment service handles ProcessPayment → succeeds
 
 	// Step 3: SendNotification → failure
 	meta, _ = consumeCommand(t, ctx, kafkaBroker, "notification.commands", order.ID, models.EventSendNotification)
 	publishReply(t, ctx, kafkaBroker, "notification.replies", meta.SagaID, order.ID, models.EventNotificationFailed, models.NotificationReply{Success: false, Message: "email service down"})
 
-	// Compensation step 1: RefundPayment
-	meta, _ = consumeCommand(t, ctx, kafkaBroker, "payment.commands", order.ID, models.EventRefundPayment)
-	publishReply(t, ctx, kafkaBroker, "payment.replies", meta.SagaID, order.ID, models.EventPaymentProcessed, models.PaymentReply{Success: true, Message: "refunded"})
-
-	// Compensation step 2: ReleaseInventory
+	// Compensation step 1: Real payment service handles RefundPayment
+	// Compensation step 2: ReleaseInventory — still stubbed
 	meta, _ = consumeCommand(t, ctx, kafkaBroker, "inventory.commands", order.ID, models.EventReleaseInventory)
 	publishReply(t, ctx, kafkaBroker, "inventory.replies", meta.SagaID, order.ID, models.EventInventoryReleased, models.InventoryReply{Success: true, Message: "released"})
 
 	// Assert final state
 	waitForSagaStatus(t, testDB, order.ID, models.SagaCompensated, 15*time.Second)
 	assertOrderStatus(t, testDB, order.ID, models.OrderFailed)
+
+	// End-to-end: real payment service created the row and then refunded it
+	var payments []models.Payment
+	require.NoError(t, testDB.Where("order_id = ?", order.ID).Find(&payments).Error)
+	require.Len(t, payments, 1)
+	assert.Equal(t, models.PaymentRefunded, payments[0].Status)
 }
 
 func TestSagaDuplicateOrderDetection(t *testing.T) {
@@ -623,14 +720,17 @@ func TestSagaDuplicateOrderDetection(t *testing.T) {
 	cancel := startOrchestrator(ctx, t, testCfg, testDB)
 	defer cancel()
 
+	fake := stripetest.New()
+	paymentCancel := startPaymentService(ctx, t, testCfg, testDB, fake)
+	defer paymentCancel()
+
 	// First order submission — drive it to completion
 	publishOrderCommand(t, ctx, kafkaBroker, order)
 
 	meta, _ := consumeCommand(t, ctx, kafkaBroker, "inventory.commands", order.ID, models.EventReserveInventory)
 	publishReply(t, ctx, kafkaBroker, "inventory.replies", meta.SagaID, order.ID, models.EventInventoryReserved, models.InventoryReply{Success: true})
 
-	meta, _ = consumeCommand(t, ctx, kafkaBroker, "payment.commands", order.ID, models.EventProcessPayment)
-	publishReply(t, ctx, kafkaBroker, "payment.replies", meta.SagaID, order.ID, models.EventPaymentProcessed, models.PaymentReply{Success: true, PaymentID: uuid.NewString()})
+	// Real payment service handles ProcessPayment
 
 	meta, _ = consumeCommand(t, ctx, kafkaBroker, "notification.commands", order.ID, models.EventSendNotification)
 	publishReply(t, ctx, kafkaBroker, "notification.replies", meta.SagaID, order.ID, models.EventNotificationSent, models.NotificationReply{Success: true})
@@ -662,15 +762,19 @@ func TestSagaCompensationFailure_SetsRetryState(t *testing.T) {
 	cancel := startOrchestrator(ctx, t, testCfg, testDB)
 	defer cancel()
 
+	// Payment declines → triggers compensation (ReleaseInventory, which we stub as failing).
+	fake := stripetest.New()
+	fake.SetProcessDeclined()
+	paymentCancel := startPaymentService(ctx, t, testCfg, testDB, fake)
+	defer paymentCancel()
+
 	publishOrderCommand(t, ctx, kafkaBroker, order)
 
 	// Step 1: ReserveInventory → success
 	meta, _ := consumeCommand(t, ctx, kafkaBroker, "inventory.commands", order.ID, models.EventReserveInventory)
 	publishReply(t, ctx, kafkaBroker, "inventory.replies", meta.SagaID, order.ID, models.EventInventoryReserved, models.InventoryReply{Success: true, Message: "reserved"})
 
-	// Step 2: ProcessPayment → failure (triggers compensation)
-	meta, _ = consumeCommand(t, ctx, kafkaBroker, "payment.commands", order.ID, models.EventProcessPayment)
-	publishReply(t, ctx, kafkaBroker, "payment.replies", meta.SagaID, order.ID, models.EventPaymentFailed, models.PaymentReply{Success: false, Message: "card declined"})
+	// Step 2: Real payment service declines ProcessPayment → triggers compensation
 
 	// Compensation: ReleaseInventory → also fails
 	meta, _ = consumeCommand(t, ctx, kafkaBroker, "inventory.commands", order.ID, models.EventReleaseInventory)

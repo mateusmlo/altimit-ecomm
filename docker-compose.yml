@@ -9,7 +9,7 @@ services:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     networks:
-      - kafka-network
+      - altimitnet
 
   kafka:
     image: confluentinc/cp-kafka:7.9.5
@@ -33,15 +33,9 @@ services:
       KAFKA_JMX_PORT: 9101
       KAFKA_JMX_HOSTNAME: localhost
     networks:
-      - kafka-network
+      - altimitnet
     healthcheck:
-      test:
-        [
-          "CMD",
-          "kafka-broker-api-versions",
-          "--bootstrap-server",
-          "localhost:9092",
-        ]
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
       interval: 10s
       timeout: 10s
       retries: 5
@@ -65,7 +59,7 @@ services:
        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic orders.dlq --partitions 1 --replication-factor 1 &&
        echo 'All topics created.'"
     networks:
-      - kafka-network
+      - altimitnet
 
   kafka-ui:
     image: provectuslabs/kafka-ui:v0.7.2
@@ -79,7 +73,7 @@ services:
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
     networks:
-      - kafka-network
+      - altimitnet
 
   postgres:
     image: postgres:17.4
@@ -94,9 +88,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
-      - kafka-network
+      - altimitnet
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mmlo_adm"]
+      test: ["CMD-SHELL", "pg_isready -d orders_db -U mmlo_adm"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -107,7 +101,7 @@ services:
     ports:
       - "6379:6379"
     networks:
-      - kafka-network
+      - altimitnet
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -115,7 +109,7 @@ services:
       retries: 5
 
 networks:
-  kafka-network:
+  altimitnet:
     driver: bridge
 
 volumes:

@@ -31,6 +31,7 @@ func TestLoad(t *testing.T) {
 		"PAYMENT_SERVICE_GROUP":       "payment-service",
 		"NOTIFICATION_SERVICE_GROUP":  "notification-service",
 		"REGION":                      "US",
+		"STRIPE_SECRET_KEY":           "parangaricotirimicuaro",
 	}
 
 	for key, value := range envVars {
@@ -86,6 +87,10 @@ func TestLoad(t *testing.T) {
 	// Validate region
 	if cfg.Region != "US" {
 		t.Errorf("Expected region 'US', got '%s'", cfg.Region)
+	}
+
+	if cfg.Stripe.SecretKey != "parangaricotirimicuaro" {
+		t.Errorf("Expected Stripe secret key 'parangaricotirimicuaro', got '%s'", cfg.Stripe.SecretKey)
 	}
 }
 
@@ -179,6 +184,9 @@ func TestValidate(t *testing.T) {
 					NotificationService: "notification-service",
 				},
 				Region: "US",
+				Stripe: StripeConfig{
+					SecretKey: "parangaricotirimicuaro",
+				},
 			},
 			expectError: false,
 		},
@@ -204,6 +212,53 @@ func TestValidate(t *testing.T) {
 			},
 			expectError: true,
 			errorMsg:    "POSTGRES_USER is required",
+		},
+		{
+			name: "missing stripe secret key",
+			config: &Config{
+				Kafka: KafkaConfig{
+					Brokers: []string{"localhost:9092"},
+				},
+				Postgres: PostgresConfig{
+					User:     "user",
+					Password: "pass",
+					DB:       "db",
+					Host:     "localhost",
+					Port:     5432,
+				},
+				Redis: RedisConfig{
+					Host: "localhost",
+					Port: 6379,
+				},
+				Topics: TopicsConfig{
+					Commands: CommandTopics{
+						Orders:       "orders",
+						Inventory:    "inventory.commands",
+						Payment:      "payment.commands",
+						Notification: "notification.commands",
+					},
+					Replies: ReplyTopics{
+						Inventory:    "inventory.replies",
+						Payment:      "payment.replies",
+						Notification: "notification.replies",
+					},
+					DLQ: DLQTopics{
+						Orders: "orders.dlq",
+					},
+				},
+				ConsumerGroups: ConsumerGroupsConfig{
+					SagaOrchestrator:    "saga-orchestrator",
+					InventoryService:    "inventory-service",
+					PaymentService:      "payment-service",
+					NotificationService: "notification-service",
+				},
+				Region: "US",
+				Stripe: StripeConfig{
+					SecretKey: "",
+				},
+			},
+			expectError: true,
+			errorMsg:    "STRIPE_SECRET_KEY is required",
 		},
 	}
 

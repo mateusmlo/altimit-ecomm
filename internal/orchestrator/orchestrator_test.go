@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mateusmlo/altimit-ecomm/internal/config"
+	"github.com/mateusmlo/altimit-ecomm/internal/errs"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -77,9 +78,9 @@ type mockOrderRepo struct {
 	updateStatusErr  error
 }
 
-func (m *mockOrderRepo) Create(_ context.Context, _ *models.Order) error  { return nil }
-func (m *mockOrderRepo) Update(_ context.Context, _ *models.Order) error  { return nil }
-func (m *mockOrderRepo) Delete(_ context.Context, _ uuid.UUID) error      { return nil }
+func (m *mockOrderRepo) Create(_ context.Context, _ *models.Order) error { return nil }
+func (m *mockOrderRepo) Update(_ context.Context, _ *models.Order) error { return nil }
+func (m *mockOrderRepo) Delete(_ context.Context, _ uuid.UUID) error     { return nil }
 
 func (m *mockOrderRepo) GetByID(_ context.Context, _ uuid.UUID) (*models.Order, error) {
 	return m.getByIDResult, m.getByIDErr
@@ -101,13 +102,48 @@ func (m *mockOrderRepo) List(_ context.Context, _, _ int) ([]*models.Order, erro
 	return nil, nil
 }
 
+type mockPaymentRepo struct {
+	getByOrderIDResult *models.Payment
+	getByOrderIDErr    error
+}
+
+func (m *mockPaymentRepo) Create(_ context.Context, _ *models.Payment) error { return nil }
+func (m *mockPaymentRepo) GetByID(_ context.Context, _ uuid.UUID) (*models.Payment, error) {
+	return nil, nil
+}
+func (m *mockPaymentRepo) GetByOrderID(_ context.Context, _ uuid.UUID) (*models.Payment, error) {
+	return m.getByOrderIDResult, m.getByOrderIDErr
+}
+func (m *mockPaymentRepo) Update(_ context.Context, _ *models.Payment) error { return nil }
+func (m *mockPaymentRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ models.PaymentStatus) error {
+	return nil
+}
+func (m *mockPaymentRepo) Delete(_ context.Context, _ uuid.UUID) error { return nil }
+func (m *mockPaymentRepo) List(_ context.Context, _, _ int) ([]*models.Payment, error) {
+	return nil, nil
+}
+func (m *mockPaymentRepo) GetByStatus(_ context.Context, _ models.PaymentStatus, _, _ int) ([]*models.Payment, error) {
+	return nil, nil
+}
+
+func newTestPayment(orderID uuid.UUID) *models.Payment {
+	return &models.Payment{
+		ID:              uuid.New(),
+		OrderID:         orderID,
+		Amount:          99.99,
+		Currency:        "USD",
+		Status:          models.PaymentPending,
+		PaymentIntentID: "pi_test_123",
+	}
+}
+
 type mockPublisher struct {
 	publishErr error
 	lastTopic  string
 	lastEvent  models.Event
 }
 
-func (m *mockPublisher) PublishEvent(_ context.Context, topic string, _ []byte, ev models.Event) error {
+func (m *mockPublisher) PublishEvent(_ context.Context, topic string, ev models.Event) error {
 	m.lastTopic = topic
 	m.lastEvent = ev
 	return m.publishErr
@@ -139,6 +175,7 @@ func newTestOrder() *models.Order {
 		PublicID:    "ORD-" + uuid.NewString()[:8],
 		CustomerID:  "cust-123",
 		TotalAmount: 99.99,
+		Currency:    "USD",
 		Status:      models.OrderPending,
 		Items: []models.OrderItem{
 			{
@@ -166,6 +203,7 @@ func newTestSaga(orderID uuid.UUID, step models.SagaStep, status models.SagaStat
 
 func TestStartSaga_Success(t *testing.T) {
 	pub := &mockPublisher{}
+	order := newTestOrder()
 	orch := NewOrchestrator(
 		&mockSagaRepo{},
 		&mockOrderRepo{},
@@ -173,7 +211,6 @@ func TestStartSaga_Success(t *testing.T) {
 		testConfig(),
 	)
 
-	order := newTestOrder()
 	err := orch.StartSaga(context.Background(), order)
 
 	require.NoError(t, err)
@@ -212,6 +249,7 @@ func TestStartSaga_UpdateOrderStatusError(t *testing.T) {
 
 func TestStartSaga_PublishError(t *testing.T) {
 	pubErr := errors.New("kafka unavailable")
+	order := newTestOrder()
 	orch := NewOrchestrator(
 		&mockSagaRepo{},
 		&mockOrderRepo{},
@@ -219,7 +257,7 @@ func TestStartSaga_PublishError(t *testing.T) {
 		testConfig(),
 	)
 
-	err := orch.StartSaga(context.Background(), newTestOrder())
+	err := orch.StartSaga(context.Background(), order)
 
 	assert.ErrorIs(t, err, pubErr)
 }
@@ -488,8 +526,7 @@ func TestProcessCompensationFailure_ExceedsMaxRetries(t *testing.T) {
 
 	err := orch.ProcessCompensationFailure(context.Background(), saga.SagaID)
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "compensation permanently failed")
+	assert.ErrorIs(t, err, errs.ErrCompensationFailed)
 }
 
 func TestProcessCompensationFailure_SagaNotFound(t *testing.T) {
@@ -595,9 +632,9 @@ func TestBuildCommandForStep_AllSteps(t *testing.T) {
 	o := &orchestrator{}
 
 	tests := []struct {
-		name     string
-		step     models.SagaStep
-		cmdType  string
+		name    string
+		step    models.SagaStep
+		cmdType string
 	}{
 		{"ReserveInventory", models.StepReserveInventory, "*models.ReserveInventoryCommand"},
 		{"ProcessPayment", models.StepProcessPayment, "*models.ProcessPaymentCommand"},
@@ -616,9 +653,10 @@ func TestBuildCommandForStep_AllSteps(t *testing.T) {
 }
 
 func TestBuildCommandForStep_UnknownStep(t *testing.T) {
+	order := newTestOrder()
 	o := &orchestrator{}
 
-	cmd, err := o.buildCommandForStep(models.SagaStep("UNKNOWN"), newTestOrder())
+	cmd, err := o.buildCommandForStep(models.SagaStep("UNKNOWN"), order)
 
 	assert.Nil(t, cmd)
 	assert.Error(t, err)
