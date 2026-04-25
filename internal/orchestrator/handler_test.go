@@ -488,7 +488,7 @@ func TestHandleReply_BackoffPeriod(t *testing.T) {
 func TestHandleReply_UnexpectedSagaStatus(t *testing.T) {
 	sagaID := uuid.New()
 	orch := &mockOrchestrator{
-		getSagaStateResult: &models.SagaState{SagaID: sagaID, Status: models.SagaCompleted},
+		getSagaStateResult: &models.SagaState{SagaID: sagaID},
 	}
 	h := newHandlerWithMocks(orch, &mockHandlerOrderRepo{})
 
