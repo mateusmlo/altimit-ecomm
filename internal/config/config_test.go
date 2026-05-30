@@ -16,8 +16,6 @@ func TestLoad(t *testing.T) {
 		"POSTGRES_DB":                 "test_db",
 		"POSTGRES_HOST":               "localhost",
 		"POSTGRES_PORT":               "5432",
-		"REDIS_HOST":                  "localhost",
-		"REDIS_PORT":                  "6379",
 		"ORDERS_TOPIC":                "orders",
 		"INVENTORY_COMMANDS_TOPIC":    "inventory.commands",
 		"PAYMENT_COMMANDS_TOPIC":      "payment.commands",
@@ -74,14 +72,6 @@ func TestLoad(t *testing.T) {
 	}
 	if cfg.Postgres.Port != 5432 {
 		t.Errorf("Expected Postgres port 5432, got %d", cfg.Postgres.Port)
-	}
-
-	// Validate Redis config
-	if cfg.Redis.Host != "localhost" {
-		t.Errorf("Expected Redis host 'localhost', got '%s'", cfg.Redis.Host)
-	}
-	if cfg.Redis.Port != 6379 {
-		t.Errorf("Expected Redis port 6379, got %d", cfg.Redis.Port)
 	}
 
 	// Validate region
@@ -157,10 +147,6 @@ func TestValidate(t *testing.T) {
 					Host:     "localhost",
 					Port:     5432,
 				},
-				Redis: RedisConfig{
-					Host: "localhost",
-					Port: 6379,
-				},
 				Topics: TopicsConfig{
 					Commands: CommandTopics{
 						Orders:       "orders",
@@ -225,10 +211,6 @@ func TestValidate(t *testing.T) {
 					DB:       "db",
 					Host:     "localhost",
 					Port:     5432,
-				},
-				Redis: RedisConfig{
-					Host: "localhost",
-					Port: 6379,
 				},
 				Topics: TopicsConfig{
 					Commands: CommandTopics{
@@ -299,18 +281,3 @@ func TestGetPostgresConnectionString(t *testing.T) {
 	}
 }
 
-func TestGetRedisAddress(t *testing.T) {
-	cfg := &Config{
-		Redis: RedisConfig{
-			Host: "localhost",
-			Port: 6379,
-		},
-	}
-
-	expected := "localhost:6379"
-	result := cfg.GetRedisAddress()
-
-	if result != expected {
-		t.Errorf("Expected Redis address '%s', got '%s'", expected, result)
-	}
-}

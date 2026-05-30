@@ -48,10 +48,6 @@ dbHost := cfg.Postgres.Host
 dbPort := cfg.Postgres.Port
 dbName := cfg.Postgres.DB
 
-// Redis configuration
-redisHost := cfg.Redis.Host
-redisPort := cfg.Redis.Port
-
 // Topics
 ordersTopicName := cfg.Topics.Commands.Orders
 inventoryCommandsTopic := cfg.Topics.Commands.Inventory
@@ -73,9 +69,6 @@ The config package provides convenient helper methods:
 connStr := cfg.GetPostgresConnectionString()
 // Returns: "host=localhost port=5432 user=user password=pass dbname=db sslmode=disable"
 
-// Get Redis address
-redisAddr := cfg.GetRedisAddress()
-// Returns: "localhost:6379"
 ```
 
 ## Configuration Structure
@@ -91,10 +84,6 @@ The configuration is organized into the following sections:
 - `DB`: Database name
 - `Host`: Database host
 - `Port`: Database port
-
-### Redis Configuration
-- `Host`: Redis host
-- `Port`: Redis port
 
 ### Topics Configuration
 - `Commands`: Command topic names (Orders, Inventory, Payment, Notification)

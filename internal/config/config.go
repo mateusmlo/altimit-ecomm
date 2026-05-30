@@ -13,7 +13,6 @@ import (
 type Config struct {
 	Kafka          KafkaConfig
 	Postgres       PostgresConfig
-	Redis          RedisConfig
 	Topics         TopicsConfig
 	ConsumerGroups ConsumerGroupsConfig
 	Region         string
@@ -34,12 +33,6 @@ type PostgresConfig struct {
 	DB       string
 	Host     string
 	Port     int
-}
-
-// RedisConfig holds Redis-related configuration
-type RedisConfig struct {
-	Host string
-	Port int
 }
 
 // TopicsConfig holds all Kafka topic names
@@ -117,10 +110,6 @@ func Load() (*Config, error) {
 			Host:     v.GetString("POSTGRES_HOST"),
 			Port:     v.GetInt("POSTGRES_PORT"),
 		},
-		Redis: RedisConfig{
-			Host: v.GetString("REDIS_HOST"),
-			Port: v.GetInt("REDIS_PORT"),
-		},
 		Topics: TopicsConfig{
 			Commands: CommandTopics{
 				Orders:       v.GetString("ORDERS_TOPIC"),
@@ -187,14 +176,6 @@ func (c *Config) Validate() error {
 	}
 	if c.Postgres.Port == 0 {
 		return fmt.Errorf("POSTGRES_PORT is required")
-	}
-
-	// Validate Redis config
-	if c.Redis.Host == "" {
-		return fmt.Errorf("REDIS_HOST is required")
-	}
-	if c.Redis.Port == 0 {
-		return fmt.Errorf("REDIS_PORT is required")
 	}
 
 	// Validate command topics
@@ -284,7 +265,3 @@ func (c *Config) GetPostgresConnectionString() string {
 	)
 }
 
-// GetRedisAddress returns the Redis address in host:port format
-func (c *Config) GetRedisAddress() string {
-	return fmt.Sprintf("%s:%d", c.Redis.Host, c.Redis.Port)
-}
