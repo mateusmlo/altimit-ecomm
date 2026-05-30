@@ -29,6 +29,9 @@ const (
 	EventRefundFailed           EventType = "REFUND_FAILED"
 	EventNotificationSent       EventType = "NOTIFICATION_SENT"
 	EventNotificationFailed     EventType = "NOTIFICATION_FAILED"
+
+	// DLQ signals (permanent failures requiring manual intervention)
+	EventCompensationFailed EventType = "COMPENSATION_FAILED"
 )
 
 type RecordMetadata struct {
@@ -94,6 +97,14 @@ type PaymentReply struct {
 type NotificationReply struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
+}
+
+type CompensationFailedPayload struct {
+	SagaID      uuid.UUID `json:"saga_id"`
+	OrderID     uuid.UUID `json:"order_id"`
+	FailedStep  string    `json:"failed_step"`
+	Retries     int       `json:"retries"`
+	Reason      string    `json:"reason"`
 }
 
 func ValidateInventoryCommand(prods []InventoryProduct) *InventoryReply {
