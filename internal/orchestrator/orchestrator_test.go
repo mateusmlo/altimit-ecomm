@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
 	"github.com/mateusmlo/altimit-ecomm/internal/config"
 	"github.com/mateusmlo/altimit-ecomm/internal/errs"
@@ -164,6 +165,9 @@ func testConfig() *config.Config {
 				Inventory:    "inventory.replies",
 				Payment:      "payment.replies",
 				Notification: "notification.replies",
+			},
+			DLQ: config.DLQTopics{
+				Orders: "orders.dlq",
 			},
 		},
 	}
@@ -541,6 +545,54 @@ func TestProcessCompensationFailure_SagaNotFound(t *testing.T) {
 	err := orch.ProcessCompensationFailure(context.Background(), uuid.New())
 
 	assert.ErrorIs(t, err, sagaErr)
+}
+
+func TestProcessCompensationFailure_ExceedsMaxRetries_PublishesToDLQ(t *testing.T) {
+	order := newTestOrder()
+	saga := newTestSaga(order.ID, models.StepCompensateInventory, models.SagaCompensating)
+	saga.CompensationRetries = MaxCompensationRetries - 1
+	pub := &mockPublisher{}
+
+	orch := NewOrchestrator(
+		&mockSagaRepo{getByIDResult: saga},
+		&mockOrderRepo{getByIDResult: order},
+		pub,
+		testConfig(),
+	)
+
+	err := orch.ProcessCompensationFailure(context.Background(), saga.SagaID)
+
+	require.ErrorIs(t, err, errs.ErrCompensationFailed)
+	assert.Equal(t, "orders.dlq", pub.lastTopic)
+	assert.Equal(t, models.EventCompensationFailed, pub.lastEvent.Event)
+	assert.Equal(t, saga.SagaID, pub.lastEvent.SagaID)
+	assert.Equal(t, order.ID, pub.lastEvent.OrderID)
+
+	var payload models.CompensationFailedPayload
+	require.NoError(t, sonic.Unmarshal(pub.lastEvent.Payload, &payload))
+	assert.Equal(t, saga.SagaID, payload.SagaID)
+	assert.Equal(t, order.ID, payload.OrderID)
+	assert.Equal(t, string(models.StepCompensateInventory), payload.FailedStep)
+	assert.Equal(t, MaxCompensationRetries, payload.Retries)
+	assert.Equal(t, errs.ErrCompensationFailed.Error(), payload.Reason)
+}
+
+func TestProcessCompensationFailure_ExceedsMaxRetries_DLQPublishFailure_StillReturnsError(t *testing.T) {
+	order := newTestOrder()
+	saga := newTestSaga(order.ID, models.StepCompensateInventory, models.SagaCompensating)
+	saga.CompensationRetries = MaxCompensationRetries - 1
+
+	orch := NewOrchestrator(
+		&mockSagaRepo{getByIDResult: saga},
+		&mockOrderRepo{getByIDResult: order},
+		&mockPublisher{publishErr: errors.New("kafka unavailable")},
+		testConfig(),
+	)
+
+	err := orch.ProcessCompensationFailure(context.Background(), saga.SagaID)
+
+	// DLQ is best-effort — a publish failure must not suppress the real error.
+	assert.ErrorIs(t, err, errs.ErrCompensationFailed)
 }
 
 // ---- Helper functions ----

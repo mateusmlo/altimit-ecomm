@@ -326,7 +326,7 @@ func startService(ctx context.Context, t *testing.T, cfg *config.Config, db *gor
 
 	// Use a unique group ID per test to avoid offset conflicts
 	groupID := "inventory-svc-test-" + uuid.NewString()[:8]
-	consumer, err := kafka.NewConsumer(cfg, groupID, []string{cfg.Topics.Commands.Inventory})
+	consumer, err := kafka.NewConsumer(cfg, groupID, []string{cfg.Topics.Commands.Inventory}, cfg.Topics.DLQ.Orders, producer.Client)
 	require.NoError(t, err)
 
 	go func() {
