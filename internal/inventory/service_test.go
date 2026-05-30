@@ -15,15 +15,19 @@ import (
 
 // mockInventoryRepo is a hand-written mock for InventoryReservationRepository.
 type mockInventoryRepo struct {
-	reserveErr error
-	releaseErr error
+	reserveErr    error
+	releaseErr    error
+	reserveCalled bool
+	releaseCalled bool
 }
 
 func (m *mockInventoryRepo) ReserveItems(_ context.Context, _ uuid.UUID, _ []models.InventoryProduct) error {
+	m.reserveCalled = true
 	return m.reserveErr
 }
 
 func (m *mockInventoryRepo) ReleaseItems(_ context.Context, _ uuid.UUID, _ []models.InventoryProduct) error {
+	m.releaseCalled = true
 	return m.releaseErr
 }
 
