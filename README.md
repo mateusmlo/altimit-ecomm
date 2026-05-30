@@ -28,24 +28,22 @@ This project serves as a means for me to study both Apache Kafka, golang and SAG
 ## Architecture
 
 ```
-  ┌──────────────────────────────────────────────────────────────────┐
-  │                          Kafka topics                            │
-  │                                                                  │
-  │  orders          inventory.commands       payment.commands       │
-  │  inventory.replies  payment.replies       notification.commands  │
-  │  notification.replies                     orders.dlq             │
-  └──────┬────────────────────┬───────────────────────┬─────────────┘
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │                            Kafka topics                              │
+  │                                                                      │
+  │  orders          inventory.commands       payment.commands           │
+  │  inventory.replies  payment.replies       notification.commands      │
+  │  notification.replies                     orders.dlq                 │
+  └──────┬────────────────────┬───────────────────────┬─────────────────┘
          │ consume/produce     │ consume/produce        │ consume/produce
          ▼                     ▼                        ▼
   ┌─────────────┐      ┌──────────────┐       ┌──────────────────┐
   │  Inventory  │      │   Payment    │       │  Notification    │
-  │   Service   │      │   Service   │       │    Service       │
+  │   Service   │      │   Service    │       │    Service       │
   └──────┬──────┘      └──────┬───────┘       └──────────────────┘
          │ GORM                │ GORM + Stripe
-         │                     ▼
-         │               PostgreSQL
-         ▼
-    PostgreSQL
+         ▼                     ▼
+    PostgreSQL            PostgreSQL
          ▲
          │ GORM
   ┌──────┴──────────────────────────────┐
@@ -53,6 +51,7 @@ This project serves as a means for me to study both Apache Kafka, golang and SAG
   │  • drives the order workflow        │
   │  • triggers compensation on failure │
   │  • retries failed compensations     │
+  │  • alerts DLQ on permanent failure  │
   └─────────────────────────────────────┘
 ```
 
@@ -65,30 +64,47 @@ START
 [ReserveInventory] ──fail──► (no prior steps — mark FAILED)
   │ success
   ▼
-[ProcessPayment] ──fail──► [CompensateInventory] ──► COMPENSATED / COMPENSATION_FAILED
+[ProcessPayment] ──fail──► [ReleaseInventory] ──► COMPENSATED / COMPENSATION_FAILED
   │ success
   ▼
-[SendNotification] ──fail──► [RefundPayment] ──► [CompensateInventory] ──► COMPENSATED
+[SendNotification] ──fail──► [RefundPayment] ──► [ReleaseInventory] ──► COMPENSATED
   │ success
   ▼
 COMPLETED
 ```
 
+### Saga states
+
+| Status | Meaning |
+|---|---|
+| `STARTED` | Saga created, first command published |
+| `IN_PROGRESS` | A forward step is executing |
+| `COMPLETED` | All steps succeeded |
+| `COMPENSATING` | A step failed; compensation is running |
+| `COMPENSATED` | Compensation succeeded; order rolled back |
+| `FAILED` | First step failed; nothing to compensate |
+| `COMPENSATION_FAILED` | Max compensation retries exhausted; requires manual intervention |
+| `CANCELLED` | Saga cancelled before completion |
+
 ### Key design decisions
 
 **Saga orchestration** — the orchestrator holds the full workflow definition. It publishes commands to `*.commands` topics and listens for replies on `*.replies` topics. On failure it walks backwards through completed steps and triggers compensations in order.
 
-**Compensation routing via workflow metadata** — each `StepDefinition` carries its own `CompensationStep`, `CompensationEventType`, and `CompensationCommandTopic` so compensation commands are always routed to the correct service topic without any switch logic outside the workflow.
+**Compensation routing via workflow metadata** — each `StepDefinition` carries its own `CompensationStep`, `CompensationEventType`, and `CompensationCommandTopic` so compensation commands are always routed to the correct service topic without any switch logic outside the workflow definition.
 
-**Exponential backoff for failed compensations** — if a compensation step itself fails the orchestrator records the retry count and a `next_retry_at` timestamp (with jitter). A `RetryWorker` goroutine polls for retryable sagas and re-sends the compensation command. After `MaxCompensationRetries` the saga is marked `COMPENSATION_FAILED` for manual intervention.
+**Exponential backoff for failed compensations** — if a compensation step itself fails, the orchestrator records the retry count and a `NextRetryAt` timestamp (initial backoff 1s, multiplier 2×, cap 60s, ±20% jitter). A `RetryWorker` goroutine polls every 5 seconds for sagas past their retry time and re-publishes the compensation command. After `MaxCompensationRetries` (3) the saga is marked `COMPENSATION_FAILED` and a `CompensationFailedPayload` alert is published to the DLQ for manual intervention.
 
-**Idempotency keys** — every command is guarded by an idempotency key stored in PostgreSQL so that retries and at-least-once Kafka delivery do not produce duplicate side effects.
+**Dead-letter queue for permanent failures** — handler errors that survive all retries are forwarded to `orders.dlq` by the Kafka consumer with a `dlq-error` header containing the original error. This keeps the consumer unblocked without silently losing records.
+
+**Idempotency via EventID** — every command handler checks the incoming `EventID` (a UUID generated by the orchestrator and carried in a Kafka record header) against an `idempotency_keys` table before dispatching to the service. On a hit the handler logs and returns without re-running the side effect. On a miss it dispatches, publishes the reply, then stores the key with the reply payload. Storing *after* a successful publish means a publish failure leaves no key behind, so the command is safely retried. This guards the payment (Stripe charges) and inventory (reservations) handlers against Kafka's at-least-once redelivery. The orchestrator handler is guarded by its own saga state machine instead.
+
+**Record metadata in Kafka headers** — `EventType`, `EventID`, `SagaID`, `OrderID`, and `Timestamp` are serialised into a `metadata` header on every record. This keeps the message body as a plain command/reply payload and lets any consumer extract routing information without unmarshaling the full body.
+
+**`EventPublisher` interface for testability** — the Kafka producer is depended on through a single-method interface (`kafka.EventPublisher`). Handlers and the orchestrator take the interface, not the concrete `*kafka.Producer`. This lets unit tests inject a simple `mockPublisher` with no broker required.
+
+**Stripe errors are not infrastructure errors** — the payment service treats card declines, failed refunds, and Stripe API responses as business outcomes, not crashes. These produce `PAYMENT_FAILED` / `REFUND_FAILED` replies so the saga can compensate gracefully. Only true infrastructure failures (DB errors, serialisation errors) bubble up and stop the consumer.
 
 **Sentinel errors in `internal/errs`** — all shared domain errors live in one package so any internal package can use `errors.Is` without creating circular imports.
-
-**Record metadata in Kafka headers** — event type, saga ID, order ID, and timestamp are serialised into a `metadata` header on every record, keeping the message body as a plain command/reply payload.
-
-**Stripe errors are not infrastructure errors** — the payment service treats card declines, failed refunds, and Stripe API responses as business outcomes, not crashes. These produce a `PAYMENT_FAILED` / `REFUND_FAILED` reply so the saga can compensate gracefully. Only true infrastructure failures (DB errors, serialisation errors) bubble up and stop the consumer.
 
 ---
 
@@ -97,16 +113,16 @@ COMPLETED
 ```
 cmd/
   inventory/        # Inventory service entrypoint + integration tests
+  notification/     # Notification service entrypoint (scaffolded)
   orchestrator/     # Saga orchestrator entrypoint + integration tests
   payment/          # Payment service entrypoint + integration tests
-  notification/     # (scaffolded)
 internal/
   config/           # Viper-based config loader (see internal/config/README.md)
-  database/         # GORM connection setup
+  database/         # GORM connection setup and auto-migration
   errs/             # Shared sentinel errors
   inventory/        # Inventory service logic and Kafka handler
-  kafka/            # Generic Kafka consumer, producer, and EventPublisher interface
-  models/           # GORM models, event/command types, and saga workflow definition
+  kafka/            # Generic consumer, producer, DLQ publisher, EventPublisher interface
+  models/           # GORM models, event/command types, saga workflow definition
   orchestrator/     # Saga orchestrator logic and Kafka handler
   payment/          # Payment service logic and Kafka handler
   repository/       # Data-access layer (one file per aggregate)
@@ -116,6 +132,20 @@ scripts/
   seed.sql          # Test product data
   test-saga/        # Live end-to-end saga test (Go program)
 ```
+
+### Database tables
+
+| Table | Model | Notes |
+|---|---|---|
+| `orders` | `Order` | UUID PK, `order_status` enum |
+| `order_items` | `OrderItem` | FK → orders |
+| `products` | `Product` | UUID PK, stock with CHECK constraints |
+| `inventory_reservations` | `InventoryReservation` | `reservation_status` enum (ACTIVE / RELEASED / CONFIRMED) |
+| `payments` | `Payment` | `payment_status` enum, Stripe `PaymentIntentID` |
+| `saga_states` | `SagaState` | `saga_status` enum, `current_step`, `compensation_retries`, `next_retry_at`, JSONB payload |
+| `idempotency_keys` | `IdempotencyKey` | EventID string PK, JSONB response, `created_at` |
+
+All tables are auto-migrated on service startup via GORM.
 
 ---
 
@@ -196,7 +226,7 @@ make clean        # tear down containers and volumes
 go test ./...
 ```
 
-No external services required.
+No external services required. Handler tests use hand-written mocks for all dependencies; the `kafka.EventPublisher` interface means no Kafka broker is needed.
 
 ### Integration tests
 
@@ -207,6 +237,19 @@ make test-integration
 ```
 
 This runs the inventory, payment, and orchestrator integration suites. The first run will pull the container images.
+
+### Test layout
+
+| Package | Test type | What it covers |
+|---|---|---|
+| `internal/repository/` | Integration | All repository CRUD operations against a real Postgres container |
+| `internal/inventory/` | Unit | Handler idempotency, service reservation/release logic |
+| `internal/payment/` | Unit | Handler idempotency, service payment/refund dispatch |
+| `internal/orchestrator/` | Unit | Full saga state machine: step advance, compensation chain, retry backoff |
+| `internal/kafka/` | Unit | Consumer error handling, DLQ forwarding, producer publish |
+| `cmd/payment/` | Integration | End-to-end payment saga flow with real DB and Kafka |
+| `cmd/inventory/` | Integration | End-to-end inventory saga flow with real DB and Kafka |
+| `cmd/orchestrator/` | Integration | Full saga orchestration, compensation, and DLQ alert |
 
 ---
 
