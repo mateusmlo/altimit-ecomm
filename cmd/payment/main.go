@@ -40,7 +40,7 @@ func main() {
 	service := payment.NewPaymentService(stripeService, paymentRepo)
 	handler := payment.NewHandler(service, producer, orderRepo, cfg)
 
-	consumer, err := kafka.NewConsumer(cfg, cfg.ConsumerGroups.PaymentService, []string{cfg.Topics.Commands.Payment})
+	consumer, err := kafka.NewConsumer(cfg, cfg.ConsumerGroups.PaymentService, []string{cfg.Topics.Commands.Payment}, cfg.Topics.DLQ.Orders, producer.Client)
 	if err != nil {
 		log.Fatalf("Failed to create consumer: %v", err)
 	}

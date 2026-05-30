@@ -13,13 +13,15 @@ import (
 // I  know two clients is not ideal but the separation of concerns is just while I get used to all this stuff
 
 type Consumer struct {
-	Client *kgo.Client
-	cfg    *config.Config
+	Client    *kgo.Client
+	cfg       *config.Config
+	dlqTopic  string
+	dlqClient *kgo.Client
 }
 
 type RecordHandler func(ctx context.Context, record *kgo.Record) error
 
-func NewConsumer(cfg *config.Config, groupID string, topics []string) (*Consumer, error) {
+func NewConsumer(cfg *config.Config, groupID string, topics []string, dlqTopic string, dlqClient *kgo.Client) (*Consumer, error) {
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(cfg.Kafka.Brokers...),
 		kgo.WithLogger(kgo.BasicLogger(log.Writer(), kgo.LogLevelError, nil)),
@@ -33,8 +35,10 @@ func NewConsumer(cfg *config.Config, groupID string, topics []string) (*Consumer
 	}
 
 	return &Consumer{
-		Client: client,
-		cfg:    cfg,
+		Client:    client,
+		cfg:       cfg,
+		dlqTopic:  dlqTopic,
+		dlqClient: dlqClient,
 	}, nil
 }
 
@@ -54,8 +58,6 @@ func (c *Consumer) Consume(ctx context.Context, handler RecordHandler) error {
 
 			return ctx.Err()
 		default:
-			var processErr error
-
 			fetches := c.Client.PollFetches(ctx)
 
 			if fetches.IsClientClosed() {
@@ -68,21 +70,13 @@ func (c *Consumer) Consume(ctx context.Context, handler RecordHandler) error {
 			}
 
 			fetches.EachRecord(func(record *kgo.Record) {
-				if processErr != nil {
-					return
-				}
-
 				if err := handler(ctx, record); err != nil {
 					log.Printf("error handling record: %v", err)
-					processErr = err
-					return
+					if dlqErr := PublishToDLQ(ctx, c.dlqClient, c.dlqTopic, record, err); dlqErr != nil {
+						log.Printf("failed to publish record to DLQ topic %s: %v", c.dlqTopic, dlqErr)
+					}
 				}
 			})
-
-			if processErr != nil {
-				//TODO: add to DLQ
-				return processErr
-			}
 
 			c.Client.CommitUncommittedOffsets(ctx)
 		}

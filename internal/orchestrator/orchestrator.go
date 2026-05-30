@@ -269,8 +269,7 @@ func (o *orchestrator) ProcessCompensationFailure(ctx context.Context, sagaID uu
 		return err
 	}
 
-	// TODO: Alert in monitoring channels
-	// TODO: Publish to DLQ
+	o.publishCompensationFailedAlert(ctx, saga, order.ID)
 
 	return fmt.Errorf("%w: saga %s at step %s after %d retries",
 		errs.ErrCompensationFailed,
@@ -278,6 +277,33 @@ func (o *orchestrator) ProcessCompensationFailure(ctx context.Context, sagaID uu
 		saga.CurrentStep,
 		saga.CompensationRetries,
 	)
+}
+
+func (o *orchestrator) publishCompensationFailedAlert(ctx context.Context, saga *models.SagaState, orderID uuid.UUID) {
+	payload, err := sonic.Marshal(models.CompensationFailedPayload{
+		SagaID:     saga.SagaID,
+		OrderID:    orderID,
+		FailedStep: string(saga.CurrentStep),
+		Retries:    saga.CompensationRetries,
+		Reason:     errs.ErrCompensationFailed.Error(),
+	})
+	if err != nil {
+		log.Printf("failed to marshal compensation failed payload for DLQ: %v", err)
+		return
+	}
+
+	ev := models.Event{
+		Event:     models.EventCompensationFailed,
+		EventID:   uuid.New(),
+		SagaID:    saga.SagaID,
+		OrderID:   orderID,
+		Payload:   payload,
+		Timestamp: time.Now().Unix(),
+	}
+
+	if err := o.producer.PublishEvent(ctx, o.cfg.Topics.DLQ.Orders, ev); err != nil {
+		log.Printf("failed to publish compensation failed alert to DLQ for saga %s: %v", saga.SagaID, err)
+	}
 }
 
 func (o *orchestrator) sendCompensationCommand(

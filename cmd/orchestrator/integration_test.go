@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
 	"testing"
@@ -124,6 +125,7 @@ func TestMain(m *testing.M) {
 		"inventory.commands", "inventory.replies",
 		"payment.commands", "payment.replies",
 		"notification.commands", "notification.replies",
+		"orders.dlq",
 	}
 	_, err = admin.CreateTopics(ctx, 1, 1, nil, topics...)
 	if err != nil {
@@ -553,6 +555,125 @@ func assertOrderStatus(t *testing.T, db *gorm.DB, orderID uuid.UUID, expectedSta
 	assert.Equal(t, expectedStatus, order.Status)
 }
 
+// consumeCommandExcluding behaves like consumeCommand but skips records whose
+// EventID is in the exclude list. Used to wait for a re-sent command after an
+// earlier one has already been consumed by an upstream call.
+func consumeCommandExcluding(t *testing.T, ctx context.Context, brokers []string, topic string, orderID uuid.UUID, eventType models.EventType, excludeEventIDs ...uuid.UUID) (models.RecordMetadata, []byte) {
+	t.Helper()
+
+	excluded := make(map[uuid.UUID]bool, len(excludeEventIDs))
+	for _, id := range excludeEventIDs {
+		excluded[id] = true
+	}
+
+	groupID := "test-cmd-consumer-" + uuid.NewString()[:8]
+	client, err := kgo.NewClient(
+		kgo.SeedBrokers(brokers...),
+		kgo.ConsumerGroup(groupID),
+		kgo.ConsumeTopics(topic),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
+	)
+	require.NoError(t, err)
+	defer client.Close()
+
+	deadline := time.After(25 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for command on %s for order %s (event %s, excluding %v)", topic, orderID, eventType, excludeEventIDs)
+		default:
+		}
+
+		fetchCtx, fetchCancel := context.WithTimeout(ctx, 2*time.Second)
+		fetches := client.PollFetches(fetchCtx)
+		fetchCancel()
+
+		var metadata models.RecordMetadata
+		var payload []byte
+		var found bool
+
+		fetches.EachRecord(func(rec *kgo.Record) {
+			if found {
+				return
+			}
+
+			var m models.RecordMetadata
+			for _, h := range rec.Headers {
+				if h.Key == "metadata" {
+					if err := sonic.Unmarshal(h.Value, &m); err != nil {
+						return
+					}
+					break
+				}
+			}
+
+			if m.OrderID != orderID || m.EventType != eventType || excluded[m.EventID] {
+				return
+			}
+
+			metadata = m
+			payload = rec.Value
+			found = true
+		})
+
+		if found {
+			return metadata, payload
+		}
+	}
+}
+
+// consumeDLQRecord polls orders.dlq until match returns true for some record,
+// or the timeout expires.
+func consumeDLQRecord(t *testing.T, ctx context.Context, brokers []string, timeout time.Duration, match func(*kgo.Record) bool) *kgo.Record {
+	t.Helper()
+
+	groupID := "dlq-consumer-" + uuid.NewString()[:8]
+	client, err := kgo.NewClient(
+		kgo.SeedBrokers(brokers...),
+		kgo.ConsumerGroup(groupID),
+		kgo.ConsumeTopics("orders.dlq"),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
+	)
+	require.NoError(t, err)
+	defer client.Close()
+
+	deadline := time.After(timeout)
+	for {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for matching DLQ record")
+		default:
+		}
+
+		fetchCtx, fetchCancel := context.WithTimeout(ctx, 2*time.Second)
+		fetches := client.PollFetches(fetchCtx)
+		fetchCancel()
+
+		var found *kgo.Record
+		fetches.EachRecord(func(rec *kgo.Record) {
+			if found != nil {
+				return
+			}
+			if match(rec) {
+				found = rec
+			}
+		})
+		if found != nil {
+			return found
+		}
+	}
+}
+
+// headerValue returns the value of the first header matching key, or "".
+func headerValue(rec *kgo.Record, key string) string {
+	for _, h := range rec.Headers {
+		if h.Key == key {
+			return string(h.Value)
+		}
+	}
+	return ""
+}
+
 // --- Test Cases ---
 
 func TestSagaHappyPath(t *testing.T) {
@@ -791,4 +912,165 @@ func TestSagaCompensationFailure_SetsRetryState(t *testing.T) {
 	assert.Equal(t, 1, saga.CompensationRetries, "compensation retries should be 1")
 	assert.NotNil(t, saga.NextRetryAt, "next retry time should be set")
 	assert.True(t, saga.NextRetryAt.After(testStart), "next retry should be scheduled after test began")
+}
+
+// TestDLQ_ConsumerForwardsFailedRecord drives the production kafka.Consumer
+// against a real broker: it produces records that the handler rejects and
+// verifies (1) the original record is forwarded to orders.dlq with a dlq-error
+// header carrying the handler error, and (2) the consumer keeps polling after
+// the failure (subsequent valid records are still processed).
+func TestDLQ_ConsumerForwardsFailedRecord(t *testing.T) {
+	ctx := context.Background()
+
+	// Fresh per-run source topic so concurrent or prior runs don't pollute results.
+	sourceTopic := "dlq-source-" + uuid.NewString()[:8]
+	adminClient, err := kgo.NewClient(kgo.SeedBrokers(kafkaBroker...))
+	require.NoError(t, err)
+	admin := kadm.NewClient(adminClient)
+	_, err = admin.CreateTopics(ctx, 1, 1, nil, sourceTopic)
+	require.NoError(t, err)
+	adminClient.Close()
+
+	// Producer doubles as the DLQ-publish client for the consumer.
+	producer, err := kafka.NewProducer(testCfg)
+	require.NoError(t, err)
+	defer producer.Client.Close()
+
+	groupID := "dlq-test-svc-" + uuid.NewString()[:8]
+	consumer, err := kafka.NewConsumer(
+		testCfg, groupID,
+		[]string{sourceTopic}, testCfg.Topics.DLQ.Orders, producer.Client,
+	)
+	require.NoError(t, err)
+	defer consumer.Client.Close()
+
+	handlerErr := errors.New("simulated handler error")
+	processed := make(chan string, 10)
+	handler := func(_ context.Context, r *kgo.Record) error {
+		if string(r.Key) == "fail-key" {
+			return handlerErr
+		}
+		processed <- string(r.Key)
+		return nil
+	}
+
+	consumeCtx, consumeCancel := context.WithCancel(ctx)
+	defer consumeCancel()
+	go consumer.Consume(consumeCtx, handler) //nolint:errcheck
+
+	// Give the consumer time to join the group and get a partition assignment.
+	time.Sleep(1 * time.Second)
+
+	// Unique values per run let consumeDLQRecord identify our record.
+	failValue := "fail-" + uuid.NewString()
+	okValue := "ok-" + uuid.NewString()
+
+	pubClient, err := kgo.NewClient(kgo.SeedBrokers(kafkaBroker...))
+	require.NoError(t, err)
+	defer pubClient.Close()
+
+	require.NoError(t, pubClient.ProduceSync(ctx, &kgo.Record{
+		Topic: sourceTopic, Key: []byte("fail-key"), Value: []byte(failValue),
+	}).FirstErr())
+	require.NoError(t, pubClient.ProduceSync(ctx, &kgo.Record{
+		Topic: sourceTopic, Key: []byte("ok-key"), Value: []byte(okValue),
+	}).FirstErr())
+
+	// The "ok" record being processed proves the consumer continued past the failed one.
+	select {
+	case got := <-processed:
+		assert.Equal(t, "ok-key", got, "consumer must continue past failed record")
+	case <-time.After(20 * time.Second):
+		t.Fatal("consumer stopped after first failed record (regression)")
+	}
+
+	// Verify the failed record landed in orders.dlq with the error header.
+	dlqRec := consumeDLQRecord(t, ctx, kafkaBroker, 15*time.Second, func(rec *kgo.Record) bool {
+		return string(rec.Value) == failValue
+	})
+	assert.Equal(t, []byte("fail-key"), dlqRec.Key)
+	assert.Equal(t, handlerErr.Error(), headerValue(dlqRec, "dlq-error"))
+}
+
+// TestDLQ_CompensationFailure_PublishesAlert drives a saga through compensation
+// retries until permanent failure and verifies the orchestrator publishes a
+// CompensationFailed alert to orders.dlq.
+//
+// The retry worker ticks every 5 s, so to keep the test fast we shortcut one
+// retry cycle by updating CompensationRetries=2 and NextRetryAt in the past
+// after the first natural failure. The remaining flow — retry worker pickup,
+// re-published compensation command, second failure, permanent transition,
+// DLQ publish — runs through the real orchestrator code path.
+func TestDLQ_CompensationFailure_PublishesAlert(t *testing.T) {
+	cleanupTables(t, testDB)
+
+	product := &models.Product{ID: uuid.New(), Name: "Widget", Price: 10.00, Stock: 100}
+	seedProducts(t, testDB, product)
+
+	order := createTestOrder(t, testDB, []*models.Product{product})
+
+	ctx := context.Background()
+	cancel := startOrchestrator(ctx, t, testCfg, testDB)
+	defer cancel()
+
+	// Payment declines → orchestrator triggers compensation (ReleaseInventory).
+	fake := stripetest.New()
+	fake.SetProcessDeclined()
+	paymentCancel := startPaymentService(ctx, t, testCfg, testDB, fake)
+	defer paymentCancel()
+
+	publishOrderCommand(t, ctx, kafkaBroker, order)
+
+	// Step 1: ReserveInventory → reply success.
+	meta, _ := consumeCommand(t, ctx, kafkaBroker, "inventory.commands", order.ID, models.EventReserveInventory)
+	publishReply(t, ctx, kafkaBroker, "inventory.replies", meta.SagaID, order.ID, models.EventInventoryReserved, models.InventoryReply{Success: true, Message: "reserved"})
+
+	// Step 2: Real payment service declines → publishes PaymentFailed.
+
+	// Compensation attempt 1: consume ReleaseInventory, reply with failure (bumps retries to 1).
+	releaseMeta1, _ := consumeCommand(t, ctx, kafkaBroker, "inventory.commands", order.ID, models.EventReleaseInventory)
+	publishReply(t, ctx, kafkaBroker, "inventory.replies", releaseMeta1.SagaID, order.ID, models.EventReleaseInventoryFailed, models.InventoryReply{Success: false, Message: "1st attempt failed"})
+
+	// Give the orchestrator time to persist retries=1 and NextRetryAt before we shortcut.
+	time.Sleep(2 * time.Second)
+
+	// Shortcut: skip one full retry cycle by jumping to retries=2 with an
+	// elapsed NextRetryAt. The retry worker will pick this up on its next tick.
+	past := time.Now().UTC().Add(-1 * time.Second)
+	require.NoError(t, testDB.Model(&models.SagaState{}).
+		Where("order_id = ?", order.ID).
+		Updates(map[string]any{
+			"compensation_retries": 2,
+			"next_retry_at":        past,
+		}).Error)
+
+	// Compensation attempt 2: retry worker re-sends ReleaseInventory (new EventID),
+	// our reply pushes retries to 3 → permanent failure → DLQ alert.
+	releaseMeta2, _ := consumeCommandExcluding(t, ctx, kafkaBroker, "inventory.commands", order.ID, models.EventReleaseInventory, releaseMeta1.EventID)
+	publishReply(t, ctx, kafkaBroker, "inventory.replies", releaseMeta2.SagaID, order.ID, models.EventReleaseInventoryFailed, models.InventoryReply{Success: false, Message: "2nd attempt failed"})
+
+	// Verify the saga reached permanent failure.
+	waitForSagaStatus(t, testDB, order.ID, models.SagaCompensationFailed, 15*time.Second)
+	assertOrderStatus(t, testDB, order.ID, models.OrderFailed)
+
+	// Verify the DLQ has the compensation-failed alert for this order.
+	dlqRec := consumeDLQRecord(t, ctx, kafkaBroker, 15*time.Second, func(rec *kgo.Record) bool {
+		metaHdr := headerValue(rec, "metadata")
+		if metaHdr == "" {
+			return false
+		}
+		var m models.RecordMetadata
+		if err := sonic.Unmarshal([]byte(metaHdr), &m); err != nil {
+			return false
+		}
+		return m.OrderID == order.ID && m.EventType == models.EventCompensationFailed
+	})
+
+	var payload models.CompensationFailedPayload
+	require.NoError(t, sonic.Unmarshal(dlqRec.Value, &payload))
+	assert.Equal(t, order.ID, payload.OrderID)
+	assert.Equal(t, releaseMeta1.SagaID, payload.SagaID)
+	assert.Equal(t, string(models.StepCompensateInventory), payload.FailedStep)
+	assert.Equal(t, orchestrator.MaxCompensationRetries, payload.Retries)
+	assert.NotEmpty(t, payload.Reason)
 }
