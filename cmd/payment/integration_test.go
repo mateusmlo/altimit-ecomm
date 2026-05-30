@@ -156,10 +156,6 @@ func buildTestConfig(pgConnStr string, brokers []string) *config.Config {
 			Host:     "localhost",
 			Port:     5432,
 		},
-		Redis: config.RedisConfig{
-			Host: "localhost",
-			Port: 6379,
-		},
 		Topics: config.TopicsConfig{
 			Commands: config.CommandTopics{
 				Orders:       "orders",
