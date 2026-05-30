@@ -36,7 +36,7 @@ func main() {
 
 	handler := inventory.NewHandler(service, producer, cfg)
 
-	consumer, err := kafka.NewConsumer(cfg, cfg.ConsumerGroups.InventoryService, []string{cfg.Topics.Commands.Inventory})
+	consumer, err := kafka.NewConsumer(cfg, cfg.ConsumerGroups.InventoryService, []string{cfg.Topics.Commands.Inventory}, cfg.Topics.DLQ.Orders, producer.Client)
 	if err != nil {
 		log.Fatalf("Failed to create consumer: %v", err)
 	}

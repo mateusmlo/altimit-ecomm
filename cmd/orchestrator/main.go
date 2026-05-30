@@ -38,7 +38,7 @@ func main() {
 	sagaRepo := repository.NewSagaRepository(db)
 	orderRepo := repository.NewOrderRepository(db)
 
-	consumer, err := kafka.NewConsumer(cfg, cfg.ConsumerGroups.SagaOrchestrator, listenTopics)
+	consumer, err := kafka.NewConsumer(cfg, cfg.ConsumerGroups.SagaOrchestrator, listenTopics, cfg.Topics.DLQ.Orders, producer.Client)
 	if err != nil {
 		log.Fatalf("Failed to create consumer: %v", err)
 	}
