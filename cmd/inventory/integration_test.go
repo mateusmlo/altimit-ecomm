@@ -321,8 +321,9 @@ func startService(ctx context.Context, t *testing.T, cfg *config.Config, db *gor
 	require.NoError(t, err)
 
 	repo := repository.NewInventoryReservationRepository(db)
+	idempotencyRepo := repository.NewIdempotencyRepository(db)
 	service := inventory.NewInventoryService(repo)
-	handler := inventory.NewHandler(service, producer, cfg)
+	handler := inventory.NewHandler(service, producer, idempotencyRepo, cfg)
 
 	// Use a unique group ID per test to avoid offset conflicts
 	groupID := "inventory-svc-test-" + uuid.NewString()[:8]

@@ -3,7 +3,9 @@ package payment
 import (
 	"context"
 	"fmt"
+	"log"
 
+	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
 	"github.com/mateusmlo/altimit-ecomm/internal/config"
 	"github.com/mateusmlo/altimit-ecomm/internal/errs"
@@ -14,18 +16,20 @@ import (
 )
 
 type Handler struct {
-	service   *PaymentService
-	producer  *kafka.Producer
-	orderRepo repository.OrderRepository
-	config    *config.Config
+	service         *PaymentService
+	producer        kafka.EventPublisher
+	orderRepo       repository.OrderRepository
+	idempotencyRepo repository.IdempotencyRepository
+	config          *config.Config
 }
 
-func NewHandler(service *PaymentService, producer *kafka.Producer, orderRepo repository.OrderRepository, config *config.Config) *Handler {
+func NewHandler(service *PaymentService, producer kafka.EventPublisher, orderRepo repository.OrderRepository, idempotencyRepo repository.IdempotencyRepository, config *config.Config) *Handler {
 	return &Handler{
-		service:   service,
-		producer:  producer,
-		orderRepo: orderRepo,
-		config:    config,
+		service:         service,
+		producer:        producer,
+		orderRepo:       orderRepo,
+		idempotencyRepo: idempotencyRepo,
+		config:          config,
 	}
 }
 
@@ -33,6 +37,17 @@ func (h *Handler) HandleCommand(ctx context.Context, rec *kgo.Record) error {
 	metadata, err := kafka.ExtractMetadata(rec.Headers)
 	if err != nil {
 		return err
+	}
+
+	key := metadata.EventID.String()
+
+	exists, err := h.idempotencyRepo.Exists(ctx, key)
+	if err != nil {
+		return err
+	}
+	if exists {
+		log.Printf("Duplicate command %s already processed, skipping", key)
+		return nil
 	}
 
 	var reply *models.PaymentReply
@@ -52,7 +67,25 @@ func (h *Handler) HandleCommand(ctx context.Context, rec *kgo.Record) error {
 		return err
 	}
 
-	return h.publishReply(ctx, metadata, reply)
+	if err := h.publishReply(ctx, metadata, reply); err != nil {
+		return err
+	}
+
+	return h.storeIdempotencyKey(ctx, key, reply)
+}
+
+// storeIdempotencyKey records the processed command keyed by EventID so a
+// redelivered command is suppressed. Called after a successful publishReply.
+func (h *Handler) storeIdempotencyKey(ctx context.Context, key string, reply *models.PaymentReply) error {
+	response, err := sonic.Marshal(reply)
+	if err != nil {
+		return err
+	}
+
+	return h.idempotencyRepo.Create(ctx, &models.IdempotencyKey{
+		Key:      key,
+		Response: response,
+	})
 }
 
 func (h *Handler) handleProcessPayment(ctx context.Context, orderID uuid.UUID) (*models.PaymentReply, error) {

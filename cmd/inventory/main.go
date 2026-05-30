@@ -32,9 +32,10 @@ func main() {
 	}
 
 	repo := repository.NewInventoryReservationRepository(db)
+	idempotencyRepo := repository.NewIdempotencyRepository(db)
 	service := inventory.NewInventoryService(repo)
 
-	handler := inventory.NewHandler(service, producer, cfg)
+	handler := inventory.NewHandler(service, producer, idempotencyRepo, cfg)
 
 	consumer, err := kafka.NewConsumer(cfg, cfg.ConsumerGroups.InventoryService, []string{cfg.Topics.Commands.Inventory}, cfg.Topics.DLQ.Orders, producer.Client)
 	if err != nil {

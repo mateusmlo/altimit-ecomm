@@ -248,9 +248,10 @@ func startService(ctx context.Context, t *testing.T, cfg *config.Config, db *gor
 
 	orderRepo := repository.NewOrderRepository(db)
 	paymentRepo := repository.NewPaymentRepository(db)
+	idempotencyRepo := repository.NewIdempotencyRepository(db)
 
 	service := payment.NewPaymentService(fake, paymentRepo)
-	handler := payment.NewHandler(service, producer, orderRepo, cfg)
+	handler := payment.NewHandler(service, producer, orderRepo, idempotencyRepo, cfg)
 
 	// AtEnd + unique group so each test only sees records published after it
 	// starts. Prior tests leave messages on the topic, and the handler errors
