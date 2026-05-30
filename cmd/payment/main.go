@@ -35,10 +35,11 @@ func main() {
 	stripeClient := stripe.NewStripeClient(cfg.Stripe)
 	orderRepo := repository.NewOrderRepository(db)
 	paymentRepo := repository.NewPaymentRepository(db)
+	idempotencyRepo := repository.NewIdempotencyRepository(db)
 	stripeService := stripe.NewStripeService(stripeClient)
 
 	service := payment.NewPaymentService(stripeService, paymentRepo)
-	handler := payment.NewHandler(service, producer, orderRepo, cfg)
+	handler := payment.NewHandler(service, producer, orderRepo, idempotencyRepo, cfg)
 
 	consumer, err := kafka.NewConsumer(cfg, cfg.ConsumerGroups.PaymentService, []string{cfg.Topics.Commands.Payment}, cfg.Topics.DLQ.Orders, producer.Client)
 	if err != nil {
