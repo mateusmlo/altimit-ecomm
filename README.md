@@ -16,7 +16,6 @@ This project serves as a means for me to study both Apache Kafka, golang and SAG
 | Language | Go 1.24 |
 | Messaging | Apache Kafka (franz-go client) |
 | Database | PostgreSQL 17 + GORM |
-| Cache | Redis 7 |
 | Payments | Stripe (stripe-go v85) |
 | JSON | bytedance/sonic |
 | Config | Viper (env vars / `.env` file) |
