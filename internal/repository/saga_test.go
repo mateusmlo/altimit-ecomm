@@ -4,14 +4,15 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
+	"github.com/mateusmlo/altimit-ecomm/internal/errs"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 )
 
 func TestSagaCreate(t *testing.T) {
@@ -66,7 +67,18 @@ func TestSagaGetByID_NotFound(t *testing.T) {
 	_, err := repo.GetByID(ctx, uuid.New())
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	assert.ErrorIs(t, err, errs.ErrSagaNotFound)
+}
+
+func TestSagaGetByID_NonNotFoundError(t *testing.T) {
+	repo := NewSagaRepository(testDB)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := repo.GetByID(ctx, uuid.New())
+
+	require.Error(t, err)
+	assert.False(t, errors.Is(err, errs.ErrSagaNotFound))
 }
 
 func TestSagaGetByOrderID(t *testing.T) {
@@ -161,7 +173,7 @@ func TestSagaDelete(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = repo.GetByID(ctx, saga.SagaID)
-	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	assert.ErrorIs(t, err, errs.ErrSagaNotFound)
 }
 
 func TestSagaList_Pagination(t *testing.T) {
