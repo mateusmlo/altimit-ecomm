@@ -123,6 +123,32 @@ func TestReserveInventory_ProductNotFound(t *testing.T) {
 	assert.Equal(t, "Product not found", reply.Message)
 }
 
+func TestReserveInventory_InsufficientStock_TypedFieldsAccessible(t *testing.T) {
+	productID := uuid.New()
+	stockErr := &errs.InsufficientStockError{
+		ProductID: productID,
+		Requested: 10,
+		Available: 5,
+	}
+	svc := NewInventoryService(&mockInventoryRepo{reserveErr: stockErr})
+
+	reply, err := svc.ReserveInventory(context.Background(), validOrderID, models.ReserveInventoryCommand{
+		Products: validProducts,
+	})
+
+	// Service returns a clean reply — error is consumed, not bubbled.
+	require.NoError(t, err)
+	assert.False(t, reply.Success)
+
+	// The typed error fields are accessible via errors.As — this is what the
+	// logging layer (ALT-44) uses; they are not lost inside the service.
+	var target *errs.InsufficientStockError
+	require.True(t, errors.As(stockErr, &target))
+	assert.Equal(t, productID, target.ProductID)
+	assert.Equal(t, 10, target.Requested)
+	assert.Equal(t, 5, target.Available)
+}
+
 func TestReserveInventory_UnexpectedError(t *testing.T) {
 	unexpected := errors.New("db connection lost")
 	svc := NewInventoryService(&mockInventoryRepo{reserveErr: unexpected})
