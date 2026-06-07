@@ -515,6 +515,47 @@ func TestReleaseInventory_NoActiveReservations(t *testing.T) {
 	assert.Equal(t, models.EventReleaseInventoryFailed, metadata.EventType)
 }
 
+func TestReleaseInventory_QuantityMismatch(t *testing.T) {
+	cleanupTables(t, testDB)
+
+	product := &models.Product{ID: uuid.New(), Name: "Quantity Mismatch Item", Price: 15.00, Stock: 100}
+	seedProducts(t, testDB, product)
+
+	ctx := context.Background()
+	cancel := startService(ctx, t, testCfg, testDB)
+	defer cancel()
+
+	orderID := uuid.New()
+	reserveProducts := []models.InventoryProduct{
+		{ProductID: product.ID, Quantity: 10},
+	}
+
+	// Step 1: Reserve with quantity 10
+	reserveCmd := models.ReserveInventoryCommand{Products: reserveProducts}
+	reservePayload, err := sonic.Marshal(reserveCmd)
+	require.NoError(t, err)
+
+	produceCommand(t, ctx, kafkaBroker, models.EventReserveInventory, orderID, reservePayload)
+	_, reserveReply := consumeReply(t, ctx, kafkaBroker, orderID, models.EventInventoryReserved, models.EventReserveInventoryFailed)
+	require.True(t, reserveReply.Success, "reserve should succeed first")
+
+	// Step 2: Release with a different quantity (5 ≠ 10)
+	releaseCmd := models.ReleaseInventoryCommand{
+		Products: []models.InventoryProduct{
+			{ProductID: product.ID, Quantity: 5},
+		},
+	}
+	releasePayload, err := sonic.Marshal(releaseCmd)
+	require.NoError(t, err)
+
+	produceCommand(t, ctx, kafkaBroker, models.EventReleaseInventory, orderID, releasePayload)
+	metadata, reply := consumeReply(t, ctx, kafkaBroker, orderID, models.EventInventoryReleased, models.EventReleaseInventoryFailed)
+
+	assert.False(t, reply.Success)
+	assert.Equal(t, models.EventReleaseInventoryFailed, metadata.EventType)
+	assert.Contains(t, reply.Message, "Quantity mismatch")
+}
+
 func TestReserveInventory_InvalidQuantity(t *testing.T) {
 	cleanupTables(t, testDB)
 
