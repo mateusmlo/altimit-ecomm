@@ -4,13 +4,14 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/mateusmlo/altimit-ecomm/internal/errs"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 )
 
 func TestOrderCreate_WithItems(t *testing.T) {
@@ -57,7 +58,18 @@ func TestOrderGetByID_NotFound(t *testing.T) {
 	_, err := repo.GetByID(ctx, uuid.New())
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	assert.ErrorIs(t, err, errs.ErrOrderNotFound)
+}
+
+func TestOrderGetByID_NonNotFoundError(t *testing.T) {
+	repo := NewOrderRepository(testDB)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := repo.GetByID(ctx, uuid.New())
+
+	require.Error(t, err)
+	assert.False(t, errors.Is(err, errs.ErrOrderNotFound))
 }
 
 func TestOrderGetByPublicID(t *testing.T) {
@@ -124,7 +136,7 @@ func TestOrderDelete(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = repo.GetByID(ctx, order.ID)
-	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	assert.ErrorIs(t, err, errs.ErrOrderNotFound)
 }
 
 func TestOrderList_Pagination(t *testing.T) {

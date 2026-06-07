@@ -2,9 +2,11 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/mateusmlo/altimit-ecomm/internal/errs"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"gorm.io/gorm"
 )
@@ -40,18 +42,24 @@ func (r *sagaRepository) Create(ctx context.Context, sagaState *models.SagaState
 func (r *sagaRepository) GetByID(ctx context.Context, sagaID uuid.UUID) (*models.SagaState, error) {
 	var sagaState models.SagaState
 	err := r.db.WithContext(ctx).First(&sagaState, "saga_id = ?", sagaID).Error
-	if err != nil {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errs.ErrSagaNotFound
+	} else if err != nil {
 		return nil, err
 	}
+
 	return &sagaState, nil
 }
 
 func (r *sagaRepository) GetByOrderID(ctx context.Context, orderID uuid.UUID) (*models.SagaState, error) {
 	var sagaState models.SagaState
 	err := r.db.WithContext(ctx).First(&sagaState, "order_id = ?", orderID).Error
-	if err != nil {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errs.ErrSagaNotFound
+	} else if err != nil {
 		return nil, err
 	}
+
 	return &sagaState, nil
 }
 

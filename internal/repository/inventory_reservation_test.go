@@ -146,6 +146,28 @@ func TestReleaseItems_NoActiveReservations(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestReleaseItems_QuantityMismatch(t *testing.T) {
+	cleanupTables(t, testDB)
+	repo := NewInventoryReservationRepository(testDB)
+	ctx := context.Background()
+
+	product := newTestProduct(func(p *models.Product) { p.Stock = 100 })
+	require.NoError(t, testDB.Create(product).Error)
+
+	orderID := uuid.New()
+	require.NoError(t, repo.ReserveItems(ctx, orderID, []models.InventoryProduct{
+		{ProductID: product.ID, Quantity: 10},
+	}))
+
+	// Release with a quantity that doesn't match the reservation
+	err := repo.ReleaseItems(ctx, orderID, []models.InventoryProduct{
+		{ProductID: product.ID, Quantity: 5},
+	})
+
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, errs.ErrQuantityMismatch))
+}
+
 func TestReleaseItems_AlreadyReleased(t *testing.T) {
 	cleanupTables(t, testDB)
 	repo := NewInventoryReservationRepository(testDB)

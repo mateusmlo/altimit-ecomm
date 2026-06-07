@@ -91,7 +91,7 @@ func (h *Handler) storeIdempotencyKey(ctx context.Context, key string, reply *mo
 func (h *Handler) handleProcessPayment(ctx context.Context, orderID uuid.UUID) (*models.PaymentReply, error) {
 	order, err := h.orderRepo.GetByID(ctx, orderID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", errs.ErrOrderNotFound, err)
+		return nil, err
 	}
 
 	return h.service.ProcessPayment(ctx, models.ProcessPaymentCommand{

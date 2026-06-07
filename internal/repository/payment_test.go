@@ -4,13 +4,14 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/mateusmlo/altimit-ecomm/internal/errs"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 )
 
 func TestPaymentCreate(t *testing.T) {
@@ -48,7 +49,18 @@ func TestPaymentGetByID_NotFound(t *testing.T) {
 	_, err := repo.GetByID(ctx, uuid.New())
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	assert.ErrorIs(t, err, errs.ErrPaymentNotFound)
+}
+
+func TestPaymentGetByID_NonNotFoundError(t *testing.T) {
+	repo := NewPaymentRepository(testDB)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := repo.GetByID(ctx, uuid.New())
+
+	require.Error(t, err)
+	assert.False(t, errors.Is(err, errs.ErrPaymentNotFound))
 }
 
 func TestPaymentGetByOrderID(t *testing.T) {
@@ -110,7 +122,7 @@ func TestPaymentDelete(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = repo.GetByID(ctx, payment.ID)
-	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	assert.ErrorIs(t, err, errs.ErrPaymentNotFound)
 }
 
 func TestPaymentList_Pagination(t *testing.T) {

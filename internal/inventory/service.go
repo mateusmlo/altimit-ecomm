@@ -67,6 +67,12 @@ func (s *InventoryService) ReleaseInventory(ctx context.Context, orderID uuid.UU
 			Message: fmt.Sprintf("No active reservations found: %v", err),
 		}, nil
 
+	case errors.Is(err, errs.ErrQuantityMismatch):
+		return &models.InventoryReply{
+			Success: false,
+			Message: fmt.Sprintf("Quantity mismatch: %v", err),
+		}, nil
+
 	case err != nil:
 		return nil, err
 	}

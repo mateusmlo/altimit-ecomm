@@ -2,9 +2,11 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/mateusmlo/altimit-ecomm/internal/errs"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"gorm.io/gorm"
 )
@@ -44,7 +46,9 @@ func (r *orderRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Or
 	err := r.db.WithContext(ctx).
 		Preload("Items").
 		First(&order, "id = ?", id).Error
-	if err != nil {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errs.ErrOrderNotFound
+	} else if err != nil {
 		return nil, err
 	}
 
@@ -57,7 +61,9 @@ func (r *orderRepository) GetByPublicID(ctx context.Context, publicID string) (*
 	err := r.db.WithContext(ctx).
 		Preload("Items").
 		First(&order, "public_id = ?", publicID).Error
-	if err != nil {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errs.ErrOrderNotFound
+	} else if err != nil {
 		return nil, err
 	}
 
