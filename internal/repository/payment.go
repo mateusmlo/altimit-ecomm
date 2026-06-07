@@ -2,9 +2,11 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/mateusmlo/altimit-ecomm/internal/errs"
 	"github.com/mateusmlo/altimit-ecomm/internal/models"
 	"gorm.io/gorm"
 )
@@ -36,7 +38,9 @@ func (r *paymentRepository) Create(ctx context.Context, payment *models.Payment)
 func (r *paymentRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Payment, error) {
 	var payment models.Payment
 	err := r.db.WithContext(ctx).First(&payment, "id = ?", id).Error
-	if err != nil {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errs.ErrPaymentNotFound
+	} else if err != nil {
 		return nil, err
 	}
 	return &payment, nil
@@ -45,7 +49,9 @@ func (r *paymentRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.
 func (r *paymentRepository) GetByOrderID(ctx context.Context, orderID uuid.UUID) (*models.Payment, error) {
 	var payment models.Payment
 	err := r.db.WithContext(ctx).First(&payment, "order_id = ?", orderID).Error
-	if err != nil {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errs.ErrPaymentNotFound
+	} else if err != nil {
 		return nil, err
 	}
 	return &payment, nil
