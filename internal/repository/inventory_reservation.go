@@ -100,8 +100,8 @@ func (r *inventoryReservationRepository) ReleaseItems(ctx context.Context, order
 			}
 
 			if reservation.Quantity != item.Quantity {
-				return fmt.Errorf("quantity mismatch for product %s: reserved=%d, requested=%d",
-					item.ProductID, reservation.Quantity, item.Quantity)
+				return fmt.Errorf("%w: product %s, reserved=%d, requested=%d",
+					errs.ErrQuantityMismatch, item.ProductID, reservation.Quantity, item.Quantity)
 			}
 		}
 
