@@ -3,7 +3,7 @@ package inventory
 import (
 	"context"
 	"errors"
-	"fmt"
+	"log"
 
 	"github.com/google/uuid"
 	"github.com/mateusmlo/altimit-ecomm/internal/errs"
@@ -28,17 +28,20 @@ func (s *InventoryService) ReserveInventory(ctx context.Context, orderID uuid.UU
 
 	err := s.repo.ReserveItems(ctx, orderID, cmd.Products)
 
+	var stockErr *errs.InsufficientStockError
 	switch {
-	case errors.Is(err, errs.ErrInsufficientStock):
+	case errors.As(err, &stockErr):
+		log.Printf("insufficient stock order_id=%s product_id=%s requested=%d available=%d",
+			orderID, stockErr.ProductID, stockErr.Requested, stockErr.Available)
 		return &models.InventoryReply{
 			Success: false,
-			Message: fmt.Sprintf("Insufficient stock: %v", err),
+			Message: "Insufficient stock",
 		}, nil
 
 	case errors.Is(err, errs.ErrProductNotFound):
 		return &models.InventoryReply{
 			Success: false,
-			Message: fmt.Sprintf("Product not found: %v", err),
+			Message: "Product not found",
 		}, nil
 
 	case err != nil:
@@ -54,23 +57,29 @@ func (s *InventoryService) ReserveInventory(ctx context.Context, orderID uuid.UU
 func (s *InventoryService) ReleaseInventory(ctx context.Context, orderID uuid.UUID, cmd models.ReleaseInventoryCommand) (*models.InventoryReply, error) {
 	err := s.repo.ReleaseItems(ctx, orderID, cmd.Products)
 
+	var noResvErr *errs.NoActiveReservationsError
+	var mismatchErr *errs.QuantityMismatchError
 	switch {
 	case errors.Is(err, errs.ErrProductNotFound):
 		return &models.InventoryReply{
 			Success: false,
-			Message: fmt.Sprintf("Product not found: %v", err),
+			Message: "Product not found",
 		}, nil
 
-	case errors.Is(err, errs.ErrNoActiveReservations):
+	case errors.As(err, &noResvErr):
+		log.Printf("no active reservations order_id=%s product_id=%s",
+			noResvErr.OrderID, noResvErr.ProductID)
 		return &models.InventoryReply{
 			Success: false,
-			Message: fmt.Sprintf("No active reservations found: %v", err),
+			Message: "No active reservations",
 		}, nil
 
-	case errors.Is(err, errs.ErrQuantityMismatch):
+	case errors.As(err, &mismatchErr):
+		log.Printf("quantity mismatch order_id=%s product_id=%s reserved=%d requested=%d",
+			orderID, mismatchErr.ProductID, mismatchErr.ReservationQuantity, mismatchErr.ItemQuantity)
 		return &models.InventoryReply{
 			Success: false,
-			Message: fmt.Sprintf("Quantity mismatch: %v", err),
+			Message: "Quantity mismatch",
 		}, nil
 
 	case err != nil:

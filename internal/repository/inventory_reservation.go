@@ -51,8 +51,11 @@ func (r *inventoryReservationRepository) ReserveItems(ctx context.Context, order
 
 		for _, p := range products {
 			if requestedQty := itemQty[p.ID]; p.Stock < requestedQty {
-				return fmt.Errorf("%w for product %s: available=%d, requested=%d",
-					errs.ErrInsufficientStock, p.ID, p.Stock, requestedQty)
+				return &errs.InsufficientStockError{
+					ProductID: p.ID,
+					Available: p.Stock,
+					Requested: requestedQty,
+				}
 			}
 		}
 
@@ -93,15 +96,20 @@ func (r *inventoryReservationRepository) ReleaseItems(ctx context.Context, order
 
 			if err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
-					return fmt.Errorf("%w: product %s for order %s",
-						errs.ErrNoActiveReservations, item.ProductID, orderID)
+					return &errs.NoActiveReservationsError{
+						OrderID:   orderID,
+						ProductID: item.ProductID,
+					}
 				}
 				return err
 			}
 
 			if reservation.Quantity != item.Quantity {
-				return fmt.Errorf("%w: product %s, reserved=%d, requested=%d",
-					errs.ErrQuantityMismatch, item.ProductID, reservation.Quantity, item.Quantity)
+				return &errs.QuantityMismatchError{
+					ProductID:           item.ProductID,
+					ReservationQuantity: reservation.Quantity,
+					ItemQuantity:        item.Quantity,
+				}
 			}
 		}
 
